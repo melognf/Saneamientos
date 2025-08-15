@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function canTransition(role, from, to) {
+      return
+        (role == 'operacion' && (
+          (from == 'sin_solicitud' && to == 'cip_solicitado') ||
+          (from == 'hisopado_ok' && to == 'arranque_en_curso') ||
+          (from == 'arranque_en_curso' && to == 'produccion_ok') ||
+          (from == 'produccion_ok' && to == 'sin_solicitud')
+        )) ||
+        (role == 'elaboracion' && (
+          (from == 'cip_solicitado' && to == 'cip_en_curso') ||
+          (from == 'cip_en_curso' && to == 'hisopado_pend')
+        )) ||
+        (role == 'materias' && (
+          (from == 'hisopado_pend' && to == 'hisopado_en_curso') ||
+          (from == 'hisopado_en_curso' && (to == 'hisopado_ok' || to == 'cip_solicitado'))
+        ));
+    }
+
+    // Usuarios: solo leen su propio documento
+    match /users/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow write: if false;  // administrar desde consola o backend
+    }
+
+    // Tablero de la llenadora
+    match /tableros/{boardId} {
+      allow read: if isSignedIn();
+      // Crear el tablero solo si queda en 'sin_solicitud'
+      allow create: if isSignedIn() && request.resource.data.current == 'sin_solicitud';
+      // Actualizar solo si la transición es válida según el rol del usuario
+      allow update: if isSignedIn()
+        && canTransition(userRole(), resource.data.current, request.resource.data.current);
+    }
+
+    // Logs: solo agregar (no editar/borrar)
+    match /tableros/{boardId}/logs/{logId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && canTransition(userRole(),
+            get(/databases/$(database)/documents/tableros/$(boardId)).data.current,
+            request.resource.data.to);
+      allow update, delete: if false;
+    }
+  }
+}

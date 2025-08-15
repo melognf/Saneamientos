@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Estado de Llenadora — Cambio de Sabor (CIP)</title>
+  <link rel="stylesheet" href="estilos.css" />
+  <!-- app.js es módulo ES y usará Firebase -->
+  <script type="module" src="app.js" defer></script>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="title">Cambio de sabor — Estado de Llenadora (CIP)</div>
+      <div id="roleBadge" class="badge" hidden>
+        <span id="roleName">—</span>
+        <small id="roleHint"></small>
+        <button id="logout" class="btn ghost" title="Cerrar sesión">Salir</button>
+      </div>
+    </header>
+
+    <!-- Login con Firebase Auth -->
+    <section class="card">
+      <div class="login" id="loginBox">
+        <input id="email" type="email" placeholder="Email de usuario (p.ej. operacion@planta.com)" />
+        <input id="password" type="password" placeholder="Contraseña" />
+        <button id="btnLogin" class="btn primary">Entrar</button>
+        <small style="opacity:.75">Tip: creá 3 usuarios y asignales rol en <code>users/{uid}</code>: operacion · elaboracion · materias</small>
+      </div>
+
+      <div id="loggedBox" style="display:none">
+        <div class="status-row">
+          <span class="chip">Equipo: <strong>Llenadora</strong></span>
+          <span class="chip">Estado actual: <strong id="estadoLabel">—</strong></span>
+        </div>
+
+        <div class="stepper" id="stepper"></div>
+        <div class="actions" id="actions"></div>
+
+        <div class="note">
+          <input id="nota" placeholder="Agregar nota (opcional): operador, lote, motivo, etc." />
+        </div>
+
+        <div class="log">
+          <h4>Historial</h4>
+          <div id="logList"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
