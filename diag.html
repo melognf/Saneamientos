@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diag Firestore /users</title>
+</head>
+<body style="font-family:system-ui;max-width:700px;margin:24px auto;padding:0 12px">
+  <h1>Diagnóstico /users</h1>
+  <p>Este test firma anónimamente y crea <code>/users/{uid}</code> con <code>{ role, pin, createdAt }</code>.</p>
+  <p><strong>ProjectId detectado:</strong> <span id="pid">—</span></p>
+  <button id="btn">Probar create /users</button>
+  <pre id="out" style="background:#111;color:#eee;padding:12px;border-radius:8px;min-height:120px;white-space:pre-wrap"></pre>
+
+  <script type="module">
+    import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getFirestore, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+    // ⚠️ USA LA MISMA CONFIG QUE EN TU firebase-config.js
+    const firebaseConfig = {
+      apiKey: "TU_API_KEY",
+      authDomain: "TU_AUTH_DOMAIN",
+      projectId: "TU_PROJECT_ID",
+      storageBucket: "TU_STORAGE_BUCKET",
+      messagingSenderId: "TU_SENDER_ID",
+      appId: "TU_APP_ID"
+    };
+
+    const app = getApps()[0] || initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    document.getElementById('pid').textContent = firebaseConfig.projectId;
+
+    const out = (msg) => {
+      const el = document.getElementById('out');
+      el.textContent += (typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2)) + "\n";
+    };
+
+    document.getElementById('btn').onclick = async () => {
+      document.getElementById('out').textContent = "";
+      try {
+        out("-> signInAnonymously()");
+        const cred = await signInAnonymously(auth);
+        out({ uid: cred.user.uid, isAnonymous: cred.user.isAnonymous });
+
+        const uref = doc(db, 'users', cred.user.uid);
+        out("-> getDoc(users/uid) (lectura)");
+        try {
+          const snap = await getDoc(uref);
+          out({ exists: snap.exists() });
+        } catch (e) {
+          out({ read_error: e.code || e.message });
+        }
+
+        out("-> setDoc(users/uid) (creación)");
+        try {
+          await setDoc(uref, { role: "operacion", pin: "1111", createdAt: serverTimestamp() });
+          out("OK: creado/actualizado");
+        } catch (e) {
+          out({ create_error: e.code || e.message, raw: String(e) });
+        }
+
+      } catch (err) {
+        out({ signin_error: err.code || err.message, raw: String(err) });
+      }
+    };
+  </script>
+</body>
+</html>
