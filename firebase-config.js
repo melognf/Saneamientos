@@ -1,11 +1,10 @@
 // firebase-config.js
-// Completar con TU configuración de Firebase y dejar este archivo en la misma carpeta.
-// En Firebase Console: Project settings → General → tu app web → SDK setup and configuration.
+// Rellená con TU configuración de Firebase (Project settings → General → Your apps → Web app)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-// ⚠️ RELLENAR con tu config
+// ⚠️ Pegar aquí tu config real
 const firebaseConfig = {
   apiKey: "TU_API_KEY",
   authDomain: "TU_AUTH_DOMAIN",

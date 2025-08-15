@@ -1,5 +1,4 @@
-// app.js (Firebase, tiempo real y roles)
-// CARGA DE MÓDULOS
+// app.js — Firebase tiempo real + roles por sector
 import { db, auth } from './firebase-config.js';
 import {
   doc, getDoc, onSnapshot, runTransaction,
@@ -40,7 +39,7 @@ const TRANSITIONS = {
   }
 };
 
-// ======= Estado en memoria =======
+// ======= Estado =======
 let USER = null;
 let ROLE = null;
 let currentState = 'sin_solicitud';
@@ -85,10 +84,10 @@ onAuthStateChanged(auth, async (user) => {
   if(!USER){
     ROLE = null;
     teardownSubs();
-    render(); // vuelve a estado no logeado
+    render();
     return;
   }
-  // traer rol desde users/{uid}
+  // Leer rol desde users/{uid}. Cambia 'users' por 'usuarios' si usás esa colección.
   const uref = doc(db, 'users', USER.uid);
   const usnap = await getDoc(uref);
   ROLE = usnap.exists() ? (usnap.data().role || null) : null;
@@ -196,7 +195,6 @@ function stateIndex(key){ return STATES.findIndex(s=>s.key===key); }
 function labelFromKey(key){ const s=STATES.find(x=>x.key===key); return s?s.label:key; }
 function prettyRole(r){ return r==='operacion'?'Operación':(r==='elaboracion'?'Elaboración':(r==='materias'?'Materias Primas':String(r))); }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
-
 function canTransition(role, from, to){
   const opts = (TRANSITIONS[role] && TRANSITIONS[role][from]) || [];
   return opts.some(o=>o.to===to);
@@ -224,7 +222,7 @@ async function applyTransition(nextKey, actionLabel){
         throw new Error('El estado cambió; actualizá la página.');
       }
       tx.update(boardRef, { current: nextKey, updatedAt: serverTimestamp() });
-      const logDoc = {
+      await addDoc(logsCol, {
         ts: serverTimestamp(),
         uid: USER.uid,
         role: ROLE,
@@ -232,9 +230,7 @@ async function applyTransition(nextKey, actionLabel){
         to: nextKey,
         action: actionLabel,
         note
-      };
-      const newRef = doc(logsCol); // ID automático
-      tx.set(newRef, logDoc);
+      });
     });
     if(notaInput) notaInput.value='';
   }catch(e){

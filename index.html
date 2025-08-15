@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Estado de Llenadora — Cambio de Sabor (CIP)</title>
+  <title>Cambio de sabor — Estado de Llenadora (CIP)</title>
   <link rel="stylesheet" href="estilos.css" />
-  <!-- app.js es módulo ES y usará Firebase -->
-  <script type="module" src="app.js" defer></script>
+  <!-- Carga de app como módulo ES para poder importar firebase-config.js -->
+  <script type="module" src="app.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -19,13 +19,13 @@
       </div>
     </header>
 
-    <!-- Login con Firebase Auth -->
     <section class="card">
+      <!-- Login con Firebase Auth (Email/Password) -->
       <div class="login" id="loginBox">
         <input id="email" type="email" placeholder="Email de usuario (p.ej. operacion@planta.com)" />
         <input id="password" type="password" placeholder="Contraseña" />
         <button id="btnLogin" class="btn primary">Entrar</button>
-        <small style="opacity:.75">Tip: creá 3 usuarios y asignales rol en <code>users/{uid}</code>: operacion · elaboracion · materias</small>
+        <small style="opacity:.75">Creá 3 usuarios y asignales rol en <code>users/{uid}</code>: operacion · elaboracion · materias</small>
       </div>
 
       <div id="loggedBox" style="display:none">
