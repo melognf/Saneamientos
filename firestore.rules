@@ -6,14 +6,11 @@ service cloud.firestore {
     function userRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
-
-    // Verifica PIN de sector contra colección /demo/{role}.pin
     function validDemo(role, pin) {
       return exists(/databases/$(database)/documents/demo/$(role)) &&
              get(/databases/$(database)/documents/demo/$(role)).data.pin == pin;
     }
 
-    // Usuarios demo (creación con PIN)
     match /users/{uid} {
       allow read: if isSignedIn() && request.auth.uid == uid;
       allow create: if isSignedIn()
@@ -23,12 +20,10 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Colección de PINs demo (no legible públicamente)
     match /demo/{role} {
-      allow read, write: if false; // administrar desde consola; las rules pueden get() igual
+      allow read, write: if false;
     }
 
-    // Tablero + logs (igual que antes)
     function canTransition(role, from, to) {
       return
         (role == 'operacion' && (

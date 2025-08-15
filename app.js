@@ -1,14 +1,13 @@
-// app.js — DEMO con Firebase Anonymous + PIN de sector (tiempo real)
+// app.js v3 — DEMO Anonymous + PIN + botón para inicializar tablero
 import { db, auth } from './firebase-config.js';
 import {
-  doc, getDoc, onSnapshot, runTransaction,
+  doc, getDoc, onSnapshot, runTransaction, setDoc,
   collection, addDoc, orderBy, query, limit, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   onAuthStateChanged, signInAnonymously, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-// ======= Constantes =======
 const BOARD_ID = 'llenadora';
 
 const STATES = [
@@ -39,7 +38,6 @@ const TRANSITIONS = {
   }
 };
 
-// ======= Estado =======
 let USER = null;
 let ROLE = null;
 let currentState = 'sin_solicitud';
@@ -47,7 +45,7 @@ let currentState = 'sin_solicitud';
 let unsubBoard = null;
 let unsubLogs = null;
 
-// ======= UI refs =======
+// UI
 const loginBox  = document.getElementById('loginBox');
 const loggedBox = document.getElementById('loggedBox');
 const roleBadge = document.getElementById('roleBadge');
@@ -65,7 +63,20 @@ const actionsBox  = document.getElementById('actions');
 const logList     = document.getElementById('logList');
 const notaInput   = document.getElementById('nota');
 
-// ======= DEMO Login (Anonymous + PIN) =======
+const initBox = document.getElementById('initBox');
+const btnInitBoard = document.getElementById('btnInitBoard');
+
+btnInitBoard?.addEventListener('click', async ()=>{
+  try{
+    await setDoc(doc(db, 'tableros', BOARD_ID), { current: 'sin_solicitud', updatedAt: serverTimestamp() });
+    alert('Tablero creado. ¡Listo para usar!');
+  }catch(e){
+    console.error(e);
+    alert('No se pudo crear el tablero: ' + e.message + '\nRevisá las reglas de Firestore.');
+  }
+});
+
+// ======= Login DEMO =======
 btnLogin?.addEventListener('click', () => doLogin());
 pinInput?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 logoutBtn?.addEventListener('click', () => signOut(auth));
@@ -74,26 +85,38 @@ async function doLogin(){
   const role = sectorSel.value;
   const pin  = (pinInput?.value||'').trim();
   if(!pin){ alert('Ingresá el PIN del sector'); return; }
+  sessionStorage.setItem('pending_role', role);
+  sessionStorage.setItem('pending_pin', pin);
 
   try{
-    const cred = await signInAnonymously(auth);
-    const uid = cred.user.uid;
-
-    // Revisar si ya tiene rol asignado
+    if(!auth.currentUser){ await signInAnonymously(auth); }
+    const uid = auth.currentUser.uid;
     const uref = doc(db, 'users', uid);
-    const usnap = await getDoc(uref);
+
+    let usnap = await getDoc(uref);
     if(!usnap.exists()){
-      // Intentar crear el doc de usuario con rol + pin (las reglas validan el PIN contra /demo/{role})
       await runTransaction(db, async (tx) => {
-        tx.set(uref, {
-          role, pin, createdAt: serverTimestamp()
-        });
+        tx.set(uref, { role, pin, createdAt: serverTimestamp() });
       });
+      usnap = await getDoc(uref);
+    }
+
+    ROLE = usnap.exists() ? (usnap.data().role||null) : null;
+    if(!ROLE){
+      alert('No se pudo asignar rol. Verificá colección demo/* y reglas.');
+      return;
     }
     pinInput.value='';
-  }catch(e){
-    console.error(e);
-    alert('No se pudo iniciar: ' + e.message);
+    render();
+    setupSubs();
+
+  }catch(err){
+    console.error(err);
+    if(err.code === 'auth/admin-restricted-operation' || err.code === 'auth/operation-not-allowed'){
+      alert('Activá Authentication → Sign-in method → Anonymous y guardá.');
+    }else{
+      alert('No se pudo iniciar: ' + err.message);
+    }
   }
 }
 
@@ -105,21 +128,37 @@ onAuthStateChanged(auth, async (user) => {
     render();
     return;
   }
-  // Leer rol desde users/{uid}
-  const uref = doc(db, 'users', USER.uid);
-  const usnap = await getDoc(uref);
-  ROLE = usnap.exists() ? (usnap.data().role || null) : null;
+  try{
+    const uref = doc(db, 'users', USER.uid);
+    let usnap = await getDoc(uref);
+    if(!usnap.exists()){
+      const role = sessionStorage.getItem('pending_role');
+      const pin  = sessionStorage.getItem('pending_pin');
+      if(role && pin){
+        await runTransaction(db, async (tx)=>{
+          tx.set(uref, { role, pin, createdAt: serverTimestamp() });
+        });
+        usnap = await getDoc(uref);
+      }
+    }
+    ROLE = usnap.exists() ? (usnap.data().role||null) : null;
+  }catch(err){
+    console.error(err);
+  }
   render();
   setupSubs();
 });
 
 function setupSubs(){
   const bref = doc(db, 'tableros', BOARD_ID);
+  if(unsubBoard) unsubBoard();
   unsubBoard = onSnapshot(bref, snap => {
     if(!snap.exists()){
       estadoLabel.textContent = 'Sin inicializar (crear doc tableros/llenadora)';
+      initBox.style.display = 'flex';
       return;
     }
+    initBox.style.display = 'none';
     const data = snap.data();
     currentState = data.current || 'sin_solicitud';
     renderStepper();
@@ -128,6 +167,7 @@ function setupSubs(){
   });
 
   const q = query(collection(db, 'tableros', BOARD_ID, 'logs'), orderBy('ts','desc'), limit(200));
+  if(unsubLogs) unsubLogs();
   unsubLogs = onSnapshot(q, snap => {
     logList.innerHTML='';
     if(snap.empty){
@@ -205,7 +245,7 @@ function renderActions(){
   }
 }
 
-// ======= Helpers =======
+// Helpers
 function stateIndex(key){ return STATES.findIndex(s=>s.key===key); }
 function labelFromKey(key){ const s=STATES.find(x=>x.key===key); return s?s.label:key; }
 function prettyRole(r){ return r==='operacion'?'Operación':(r==='elaboracion'?'Elaboración':(r==='materias'?'Materias Primas':String(r))); }
@@ -215,7 +255,7 @@ function canTransition(role, from, to){
   return opts.some(o=>o.to===to);
 }
 
-// ======= Acción: transición con transacción + log =======
+// Transición + log
 async function applyTransition(nextKey, actionLabel){
   if(!USER || !ROLE) return;
   if(!canTransition(ROLE, currentState, nextKey)){
@@ -239,7 +279,7 @@ async function applyTransition(nextKey, actionLabel){
       tx.update(boardRef, { current: nextKey, updatedAt: serverTimestamp() });
       await addDoc(logsCol, {
         ts: serverTimestamp(),
-        uid: USER.uid,
+        uid: (auth.currentUser?.uid)||'anon',
         role: ROLE,
         from: current,
         to: nextKey,
@@ -253,11 +293,3 @@ async function applyTransition(nextKey, actionLabel){
     alert('No se pudo aplicar: ' + e.message);
   }
 }
-
-// Atajo: Enter envía primera acción
-notaInput?.addEventListener('keydown', e=>{
-  if(e.key==='Enter'){
-    const btn = actionsBox.querySelector('button');
-    if(btn) btn.click();
-  }
-});

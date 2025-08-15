@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cambio de sabor — Estado de Llenadora (CIP)</title>
   <link rel="stylesheet" href="estilos.css" />
-  <!-- Carga de app como módulo ES para poder importar firebase-config.js -->
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=3"></script>
 </head>
 <body>
   <div class="wrap">
@@ -20,7 +19,6 @@
     </header>
 
     <section class="card">
-      <!-- Login DEMO con Firebase Anonymous + PIN por sector -->
       <div class="login" id="loginBox">
         <label>Ingresar como (DEMO con PIN):</label>
         <select id="sector">
@@ -37,6 +35,11 @@
         <div class="status-row">
           <span class="chip">Equipo: <strong>Llenadora</strong></span>
           <span class="chip">Estado actual: <strong id="estadoLabel">—</strong></span>
+        </div>
+
+        <div id="initBox" class="warn" style="display:none">
+          <span>⚠️ El tablero aún no existe.</span>
+          <button id="btnInitBoard" class="btn primary">Crear tableros/llenadora</button>
         </div>
 
         <div class="stepper" id="stepper"></div>
