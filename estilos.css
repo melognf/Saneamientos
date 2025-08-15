@@ -3,7 +3,7 @@
   --bg:#0b1020; --card:#141b2d; --muted:#9aa4b2; --text:#e5e7eb; --accent:#7c3aed;
 }
 *{box-sizing:border-box} html,body{height:100%}
-body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial; 
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
   background:linear-gradient(160deg,var(--bg),#0d162f 50%, #0c1326); color:var(--text)}
 .wrap{max-width:1000px;margin:32px auto;padding:0 16px}
 header{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}

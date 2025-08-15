@@ -3,6 +3,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
+// 👉 Pegá acá tu config real del proyecto que estás usando
 const firebaseConfig = {
   apiKey: "AIzaSyDY7UmGpp4-JE6Ax00G2Sed1lMRqd079JI",
   authDomain: "saneamientos-f3e83.firebaseapp.com",
@@ -12,9 +13,9 @@ const firebaseConfig = {
   appId: "1:763641380153:web:f330b8a8c9317faf897ce8"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-
-export const db = getFirestore(app);
+export const app  = initializeApp(firebaseConfig);
+export const db   = getFirestore(app);
 export const auth = getAuth(app);
+
+// Muestra el projectId en pantalla para verificar que apuntas al proyecto correcto
+window.__FIREBASE_PROJECT_ID__ = firebaseConfig.projectId;

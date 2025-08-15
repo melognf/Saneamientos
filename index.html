@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cambio de sabor — Estado de Llenadora (CIP)</title>
   <link rel="stylesheet" href="estilos.css" />
-  
+  <script type="module" src="app.js?v=5"></script>
 </head>
 <body>
   <div class="wrap">
@@ -26,9 +26,9 @@
           <option value="elaboracion">Elaboración</option>
           <option value="materias">Materias Primas</option>
         </select>
-        <input id="pin" type="password" placeholder="PIN del sector (p.ej. 1111)" />
+        <input id="pin" type="password" placeholder="PIN del sector (p.ej. 1111/2222/3333)" />
         <button id="btnLogin" class="btn primary">Entrar</button>
-        <small style="opacity:.75">Auth → Sign-in method: Anonymous ON. Colección <code>demo</code> con docs <code>operacion|elaboracion|materias</code> y campo <code>pin</code> tipo <em>string</em>.</small>
+        <small id="projInfo" style="opacity:.75"></small>
       </div>
 
       <div id="loggedBox" style="display:none">
@@ -56,6 +56,5 @@
       </div>
     </section>
   </div>
-  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>
