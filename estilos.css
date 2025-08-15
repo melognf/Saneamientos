@@ -24,7 +24,7 @@ header{display:flex;gap:12px;align-items:center;justify-content:space-between;ma
   border-radius:16px;padding:18px}
 
 .login{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.login input{background:#0f172a;border:1px solid rgba(255,255,255,.12);color:var(--text);padding:10px 12px;border-radius:12px}
+.login select,.login input{background:#0f172a;border:1px solid rgba(255,255,255,.12);color:var(--text);padding:10px 12px;border-radius:12px}
 .btn{cursor:pointer;border:none;border-radius:12px;padding:10px 14px;font-weight:700}
 .btn.primary{background:var(--accent);color:white}
 .btn.ghost{background:transparent;color:var(--text);border:1px solid rgba(255,255,255,.18)}

@@ -1,17 +1,16 @@
-# Saneamientos — Tablero CIP en tiempo real (Firebase)
+# CIP demo — Firebase tiempo real con PIN por sector (Anonymous Auth)
 
-## Archivos
-- `index.html` — UI con login Email/Password y tablero de estados.
-- `estilos.css` — estilos.
-- `app.js` — lógica, roles y Firestore en tiempo real.
-- `firebase-config.js` — pegá aquí tu configuración web de Firebase.
-- `firestore.rules` — copia y publicá en Firestore → Rules.
+## Idea
+Para demo sin correos: cada persona elige su **sector** y escribe un **PIN**. El cliente inicia sesión con **Anonymous Auth** y crea `users/{uid}` con su `role`. Las **reglas** validan el PIN contra la colección `demo` para permitir la creación. Luego todo el tablero funciona en **tiempo real** como antes.
 
-## Setup rápido
-1. **Auth**: Habilitá Email/Password. En *Authentication → Settings → Authorized domains* agrega `localhost`, `127.0.0.1` y tu `USUARIO.github.io`.2. **Usuarios**: En **Authentication → Users** crea 3 usuarios y en **Firestore** crea `users/{uid}` con `role: "operacion" | "elaboracion" | "materias"`.3. **Tablero**: En **Firestore** crea `tableros/llenadora` con `current: "sin_solicitud"` y `updatedAt: server timestamp`.4. **Reglas**: pegá `firestore.rules` y publicá.5. **GitHub Pages**: subí estos archivos a la **raíz del repo** (o `docs/` si tu Pages usa esa carpeta).
+## Pasos
+1. **Auth** → **Sign-in method** → habilitar **Anonymous**.2. **Firestore**:   - Colección `demo` con 3 docs y campo `pin`:     - `demo/operacion` → `{ pin: "1111" }`\ 
+     - `demo/elaboracion` → `{ pin: "2222" }`\ 
+     - `demo/materias` → `{ pin: "3333" }`   - Colección `tableros` → doc `llenadora` → `current: "sin_solicitud"`, `updatedAt: serverTimestamp`.   - **Rules**: pegar `firestore.rules` y **Publicar**.
+3. **Config web**: en `firebase-config.js` pegá tu configuración real (Project settings → General → Web app).
+4. **GitHub Pages / Hosting**: subí estos archivos a tu sitio. Listo para mostrar **tiempo real**.
 
 ## Notas
-- Si preferís usar colección `usuarios` en lugar de `users`, cambia esas rutas en `app.js` y en `firestore.rules`.
-- Para depurar, abrí DevTools → Console y verificá que `app.js` cargue sin errores y que `firebase-config.js` tenga tu `apiKey` real (empieza con `AIza...`).
+- Los PINs están en `demo/*`. Cámbialos cuando quieras.- El doc `users/{uid}` se crea **solo una vez**. Si el usuario cierra sesión, la próxima sesión anónima genera **otro UID** (útil para demos).- Podés migrar a Email/Password más adelante sin cambiar el tablero.
 
-¡Éxitos!
+¡Éxitos con la demo!

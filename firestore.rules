@@ -2,14 +2,33 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function isSignedIn() { return request.auth != null; }
     function userRole() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
+    // Verifica PIN de sector contra colección /demo/{role}.pin
+    function validDemo(role, pin) {
+      return exists(/databases/$(database)/documents/demo/$(role)) &&
+             get(/databases/$(database)/documents/demo/$(role)).data.pin == pin;
     }
 
+    // Usuarios demo (creación con PIN)
+    match /users/{uid} {
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role in ['operacion','elaboracion','materias']
+        && validDemo(request.resource.data.role, request.resource.data.pin);
+      allow update, delete: if false;
+    }
+
+    // Colección de PINs demo (no legible públicamente)
+    match /demo/{role} {
+      allow read, write: if false; // administrar desde consola; las rules pueden get() igual
+    }
+
+    // Tablero + logs (igual que antes)
     function canTransition(role, from, to) {
       return
         (role == 'operacion' && (
@@ -28,23 +47,13 @@ service cloud.firestore {
         ));
     }
 
-    // Usuarios: solo leen su propio documento
-    match /users/{uid} {
-      allow read: if isSignedIn() && request.auth.uid == uid;
-      allow write: if false;  // administrar desde consola o backend
-    }
-
-    // Tablero de la llenadora
     match /tableros/{boardId} {
       allow read: if isSignedIn();
-      // Crear el tablero solo si queda en 'sin_solicitud'
       allow create: if isSignedIn() && request.resource.data.current == 'sin_solicitud';
-      // Actualizar solo si la transición es válida según el rol del usuario
       allow update: if isSignedIn()
         && canTransition(userRole(), resource.data.current, request.resource.data.current);
     }
 
-    // Logs: solo agregar (no editar/borrar)
     match /tableros/{boardId}/logs/{logId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn()

@@ -1,11 +1,11 @@
-// app.js — Firebase tiempo real + roles por sector
+// app.js — DEMO con Firebase Anonymous + PIN de sector (tiempo real)
 import { db, auth } from './firebase-config.js';
 import {
   doc, getDoc, onSnapshot, runTransaction,
   collection, addDoc, orderBy, query, limit, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
-  onAuthStateChanged, signInWithEmailAndPassword, signOut
+  onAuthStateChanged, signInAnonymously, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // ======= Constantes =======
@@ -55,9 +55,9 @@ const roleName  = document.getElementById('roleName');
 const roleHint  = document.getElementById('roleHint');
 const logoutBtn = document.getElementById('logout');
 
-const emailInp = document.getElementById('email');
-const passInp  = document.getElementById('password');
-const btnLogin = document.getElementById('btnLogin');
+const sectorSel = document.getElementById('sector');
+const pinInput  = document.getElementById('pin');
+const btnLogin  = document.getElementById('btnLogin');
 
 const estadoLabel = document.getElementById('estadoLabel');
 const stepperBox  = document.getElementById('stepper');
@@ -65,18 +65,36 @@ const actionsBox  = document.getElementById('actions');
 const logList     = document.getElementById('logList');
 const notaInput   = document.getElementById('nota');
 
-// ======= Auth =======
+// ======= DEMO Login (Anonymous + PIN) =======
 btnLogin?.addEventListener('click', () => doLogin());
-passInp?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+pinInput?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 logoutBtn?.addEventListener('click', () => signOut(auth));
 
-function doLogin(){
-  const email = (emailInp?.value||'').trim();
-  const pass  = (passInp?.value||'').trim();
-  if(!email || !pass){ alert('Completá email y contraseña'); return; }
-  signInWithEmailAndPassword(auth, email, pass).catch(err=>{
-    console.error(err); alert('No se pudo iniciar sesión: '+err.message);
-  });
+async function doLogin(){
+  const role = sectorSel.value;
+  const pin  = (pinInput?.value||'').trim();
+  if(!pin){ alert('Ingresá el PIN del sector'); return; }
+
+  try{
+    const cred = await signInAnonymously(auth);
+    const uid = cred.user.uid;
+
+    // Revisar si ya tiene rol asignado
+    const uref = doc(db, 'users', uid);
+    const usnap = await getDoc(uref);
+    if(!usnap.exists()){
+      // Intentar crear el doc de usuario con rol + pin (las reglas validan el PIN contra /demo/{role})
+      await runTransaction(db, async (tx) => {
+        tx.set(uref, {
+          role, pin, createdAt: serverTimestamp()
+        });
+      });
+    }
+    pinInput.value='';
+  }catch(e){
+    console.error(e);
+    alert('No se pudo iniciar: ' + e.message);
+  }
 }
 
 onAuthStateChanged(auth, async (user) => {
@@ -87,13 +105,10 @@ onAuthStateChanged(auth, async (user) => {
     render();
     return;
   }
-  // Leer rol desde users/{uid}. Cambia 'users' por 'usuarios' si usás esa colección.
+  // Leer rol desde users/{uid}
   const uref = doc(db, 'users', USER.uid);
   const usnap = await getDoc(uref);
   ROLE = usnap.exists() ? (usnap.data().role || null) : null;
-  if(!ROLE){
-    alert('Tu usuario no tiene rol asignado en /users/{uid}. Contactá al admin.');
-  }
   render();
   setupSubs();
 });
@@ -141,12 +156,12 @@ function teardownSubs(){
 
 // ======= Render =======
 function render(){
-  if(USER){
+  if(USER && ROLE){
     loginBox.style.display='none';
     loggedBox.style.display='block';
     roleBadge.hidden=false;
-    roleName.textContent = prettyRole(ROLE || '—');
-    roleHint.textContent = USER.email || 'activo';
+    roleName.textContent = prettyRole(ROLE);
+    roleHint.textContent = USER.isAnonymous ? 'Anon demo' : 'activo';
   }else{
     loginBox.style.display='flex';
     loggedBox.style.display='none';
