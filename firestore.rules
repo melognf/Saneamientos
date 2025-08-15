@@ -3,9 +3,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isSignedIn() { return request.auth != null; }
-    function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    }
+    function userRole() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role; }
     function validDemo(role, pin) {
       return exists(/databases/$(database)/documents/demo/$(role)) &&
              get(/databases/$(database)/documents/demo/$(role)).data.pin == pin;
@@ -20,24 +18,23 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    match /demo/{role} {
-      allow read, write: if false;
-    }
+    match /demo/{role} { allow read, write: if false; }
 
     function canTransition(role, from, to) {
       return
         (role == 'operacion' && (
-          (from == 'sin_solicitud' && to == 'cip_solicitado') ||
-          (from == 'hisopado_ok' && to == 'arranque_en_curso') ||
+          (from == 'sin_solicitud'     && to == 'cip_solicitado') ||
+          (from == 'hisopado_ok'       && to == 'arranque_en_curso') ||
           (from == 'arranque_en_curso' && to == 'produccion_ok') ||
-          (from == 'produccion_ok' && to == 'sin_solicitud')
+          (from == 'arranque_en_curso' && to == 'sin_solicitud') ||
+          (from == 'produccion_ok'     && to == 'sin_solicitud')
         )) ||
         (role == 'elaboracion' && (
           (from == 'cip_solicitado' && to == 'cip_en_curso') ||
-          (from == 'cip_en_curso' && to == 'hisopado_pend')
+          (from == 'cip_en_curso'   && to == 'hisopado_pend')
         )) ||
         (role == 'materias' && (
-          (from == 'hisopado_pend' && to == 'hisopado_en_curso') ||
+          (from == 'hisopado_pend'     && to == 'hisopado_en_curso') ||
           (from == 'hisopado_en_curso' && (to == 'hisopado_ok' || to == 'cip_solicitado'))
         ));
     }
@@ -47,6 +44,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && request.resource.data.current == 'sin_solicitud';
       allow update: if isSignedIn()
         && canTransition(userRole(), resource.data.current, request.resource.data.current);
+      allow delete: if false;
     }
 
     match /tableros/{boardId}/logs/{logId} {

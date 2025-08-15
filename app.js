@@ -1,4 +1,4 @@
-// app.js v3 — DEMO Anonymous + PIN + botón para inicializar tablero
+// app.js v4 — mensajes claros y render inmediato
 import { db, auth } from './firebase-config.js';
 import {
   doc, getDoc, onSnapshot, runTransaction, setDoc,
@@ -25,7 +25,10 @@ const TRANSITIONS = {
   operacion: {
     sin_solicitud: [ {to:'cip_solicitado', action:'Solicitar CIP'} ],
     hisopado_ok:   [ {to:'arranque_en_curso', action:'Iniciar arranque'} ],
-    arranque_en_curso: [ {to:'produccion_ok', action:'Confirmar producción OK'} ],
+    arranque_en_curso: [
+      {to:'produccion_ok', action:'Confirmar producción OK'},
+      {to:'sin_solicitud', action:'Cancelar y reiniciar'}
+    ],
     produccion_ok: [ {to:'sin_solicitud', action:'Nuevo cambio de sabor'} ]
   },
   elaboracion: {
@@ -45,30 +48,26 @@ let currentState = 'sin_solicitud';
 let unsubBoard = null;
 let unsubLogs = null;
 
-// UI
 const loginBox  = document.getElementById('loginBox');
 const loggedBox = document.getElementById('loggedBox');
 const roleBadge = document.getElementById('roleBadge');
 const roleName  = document.getElementById('roleName');
 const roleHint  = document.getElementById('roleHint');
 const logoutBtn = document.getElementById('logout');
-
 const sectorSel = document.getElementById('sector');
 const pinInput  = document.getElementById('pin');
 const btnLogin  = document.getElementById('btnLogin');
-
 const estadoLabel = document.getElementById('estadoLabel');
 const stepperBox  = document.getElementById('stepper');
 const actionsBox  = document.getElementById('actions');
 const logList     = document.getElementById('logList');
 const notaInput   = document.getElementById('nota');
-
-const initBox = document.getElementById('initBox');
-const btnInitBoard = document.getElementById('btnInitBoard');
+const initBox     = document.getElementById('initBox');
+const btnInitBoard= document.getElementById('btnInitBoard');
 
 btnInitBoard?.addEventListener('click', async ()=>{
   try{
-    await setDoc(doc(db, 'tableros', BOARD_ID), { current: 'sin_solicitud', updatedAt: serverTimestamp() });
+    await setDoc(doc(db, 'tableros', 'llenadora'), { current: 'sin_solicitud', updatedAt: serverTimestamp() });
     alert('Tablero creado. ¡Listo para usar!');
   }catch(e){
     console.error(e);
@@ -76,7 +75,6 @@ btnInitBoard?.addEventListener('click', async ()=>{
   }
 });
 
-// ======= Login DEMO =======
 btnLogin?.addEventListener('click', () => doLogin());
 pinInput?.addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 logoutBtn?.addEventListener('click', () => signOut(auth));
@@ -85,6 +83,7 @@ async function doLogin(){
   const role = sectorSel.value;
   const pin  = (pinInput?.value||'').trim();
   if(!pin){ alert('Ingresá el PIN del sector'); return; }
+
   sessionStorage.setItem('pending_role', role);
   sessionStorage.setItem('pending_pin', pin);
 
@@ -93,19 +92,32 @@ async function doLogin(){
     const uid = auth.currentUser.uid;
     const uref = doc(db, 'users', uid);
 
-    let usnap = await getDoc(uref);
+    let usnap;
+    try{ usnap = await getDoc(uref); }
+    catch(e){
+      console.error('Error leyendo users/{uid}:', e);
+      alert('Error de permisos al leer tu usuario. Revisá Rules: match /users/{uid} allow read si uid coincide.');
+      return;
+    }
+
     if(!usnap.exists()){
-      await runTransaction(db, async (tx) => {
-        tx.set(uref, { role, pin, createdAt: serverTimestamp() });
-      });
+      try{
+        await runTransaction(db, async (tx) => { tx.set(uref, { role, pin, createdAt: serverTimestamp() }); });
+      }catch(e){
+        console.error('Error creando users/{uid}:', e);
+        if(String(e).includes('PERMISSION_DENIED')){
+          alert('Permiso denegado al crear usuario. Verificá:\n• demo/'+role+' con pin STRING "'+pin+'";\n• Rules publicadas;\n• La colección se llama "users".');
+        }else{
+          alert('No se pudo crear el usuario: ' + e.message);
+        }
+        return;
+      }
       usnap = await getDoc(uref);
     }
 
     ROLE = usnap.exists() ? (usnap.data().role||null) : null;
-    if(!ROLE){
-      alert('No se pudo asignar rol. Verificá colección demo/* y reglas.');
-      return;
-    }
+    if(!ROLE){ alert('No se pudo asignar rol. Revisá demo/* y Rules.'); return; }
+
     pinInput.value='';
     render();
     setupSubs();
@@ -123,10 +135,7 @@ async function doLogin(){
 onAuthStateChanged(auth, async (user) => {
   USER = user || null;
   if(!USER){
-    ROLE = null;
-    teardownSubs();
-    render();
-    return;
+    ROLE = null; teardownSubs(); render(); return;
   }
   try{
     const uref = doc(db, 'users', USER.uid);
@@ -135,22 +144,19 @@ onAuthStateChanged(auth, async (user) => {
       const role = sessionStorage.getItem('pending_role');
       const pin  = sessionStorage.getItem('pending_pin');
       if(role && pin){
-        await runTransaction(db, async (tx)=>{
-          tx.set(uref, { role, pin, createdAt: serverTimestamp() });
-        });
+        try{ await runTransaction(db, async (tx)=>{ tx.set(uref, { role, pin, createdAt: serverTimestamp() }); }); }
+        catch(e){ console.error('Tx en onAuthStateChanged falló:', e); }
         usnap = await getDoc(uref);
       }
     }
     ROLE = usnap.exists() ? (usnap.data().role||null) : null;
-  }catch(err){
-    console.error(err);
-  }
+  }catch(err){ console.error(err); }
   render();
   setupSubs();
 });
 
 function setupSubs(){
-  const bref = doc(db, 'tableros', BOARD_ID);
+  const bref = doc(db, 'tableros', 'llenadora');
   if(unsubBoard) unsubBoard();
   unsubBoard = onSnapshot(bref, snap => {
     if(!snap.exists()){
@@ -166,7 +172,7 @@ function setupSubs(){
     estadoLabel.textContent = labelFromKey(currentState);
   });
 
-  const q = query(collection(db, 'tableros', BOARD_ID, 'logs'), orderBy('ts','desc'), limit(200));
+  const q = query(collection(db, 'tableros', 'llenadora', 'logs'), orderBy('ts','desc'), limit(200));
   if(unsubLogs) unsubLogs();
   unsubLogs = onSnapshot(q, snap => {
     logList.innerHTML='';
@@ -189,39 +195,25 @@ function setupSubs(){
   });
 }
 
-function teardownSubs(){
-  if(unsubBoard){ unsubBoard(); unsubBoard=null; }
-  if(unsubLogs){ unsubLogs(); unsubLogs=null; }
-}
+function teardownSubs(){ if(unsubBoard){ unsubBoard(); unsubBoard=null; } if(unsubLogs){ unsubLogs(); unsubLogs=null; } }
 
-// ======= Render =======
 function render(){
   if(USER && ROLE){
-    loginBox.style.display='none';
-    loggedBox.style.display='block';
-    roleBadge.hidden=false;
-    roleName.textContent = prettyRole(ROLE);
-    roleHint.textContent = USER.isAnonymous ? 'Anon demo' : 'activo';
+    loginBox.style.display='none'; loggedBox.style.display='block'; roleBadge.hidden=false;
+    roleName.textContent = prettyRole(ROLE); roleHint.textContent = USER.isAnonymous ? 'Anon demo' : 'activo';
   }else{
-    loginBox.style.display='flex';
-    loggedBox.style.display='none';
-    roleBadge.hidden=true;
+    loginBox.style.display='flex'; loggedBox.style.display='none'; roleBadge.hidden=true;
   }
-  renderStepper();
-  renderActions();
-  estadoLabel.textContent = labelFromKey(currentState);
+  renderStepper(); renderActions(); estadoLabel.textContent = labelFromKey(currentState);
 }
 
 function renderStepper(){
   stepperBox.innerHTML='';
   const curIdx = stateIndex(currentState);
   STATES.forEach((s,idx)=>{
-    const el=document.createElement('div');
-    el.className='step';
-    if(idx<curIdx) el.classList.add('done');
-    if(idx===curIdx) el.classList.add('active');
-    el.innerHTML=`<div class="dot"></div><div style="font-size:12px">${idx+1}. ${s.label}</div>`;
-    stepperBox.appendChild(el);
+    const el=document.createElement('div'); el.className='step';
+    if(idx<curIdx) el.classList.add('done'); if(idx===curIdx) el.classList.add('active');
+    el.innerHTML=`<div class="dot"></div><div style="font-size:12px">${idx+1}. ${s.label}</div>`; stepperBox.appendChild(el);
   });
 }
 
@@ -230,66 +222,36 @@ function renderActions(){
   if(!USER || !ROLE){ return; }
   const opts = (TRANSITIONS[ROLE] && TRANSITIONS[ROLE][currentState]) || [];
   if(!opts.length){
-    const none = document.createElement('div');
-    none.style.opacity=.75;
-    none.textContent = 'Sin acciones disponibles para tu sector en este estado.';
-    actionsBox.appendChild(none);
+    const none = document.createElement('div'); none.style.opacity=.75; none.textContent = 'Sin acciones disponibles para tu sector en este estado.'; actionsBox.appendChild(none);
   }else{
     for(const op of opts){
-      const b=document.createElement('button');
-      b.className='btn primary row';
-      b.textContent=op.action;
-      b.addEventListener('click',()=>applyTransition(op.to, op.action));
-      actionsBox.appendChild(b);
+      const b=document.createElement('button'); b.className='btn primary row'; b.textContent=op.action; b.addEventListener('click',()=>applyTransition(op.to, op.action)); actionsBox.appendChild(b);
     }
   }
 }
 
-// Helpers
 function stateIndex(key){ return STATES.findIndex(s=>s.key===key); }
 function labelFromKey(key){ const s=STATES.find(x=>x.key===key); return s?s.label:key; }
 function prettyRole(r){ return r==='operacion'?'Operación':(r==='elaboracion'?'Elaboración':(r==='materias'?'Materias Primas':String(r))); }
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
-function canTransition(role, from, to){
-  const opts = (TRANSITIONS[role] && TRANSITIONS[role][from]) || [];
-  return opts.some(o=>o.to===to);
-}
+function canTransition(role, from, to){ const opts=(TRANSITIONS[role]&&TRANSITIONS[role][from])||[]; return opts.some(o=>o.to===to); }
 
-// Transición + log
 async function applyTransition(nextKey, actionLabel){
   if(!USER || !ROLE) return;
-  if(!canTransition(ROLE, currentState, nextKey)){
-    alert('Transición no permitida para tu sector.');
-    return;
-  }
+  if(!canTransition(ROLE, currentState, nextKey)){ alert('Transición no permitida para tu sector.'); return; }
   const note = (notaInput?.value||'').trim();
-  const boardRef = doc(db,'tableros', BOARD_ID);
-  const logsCol  = collection(db, 'tableros', BOARD_ID, 'logs');
+  const boardRef = doc(db,'tableros','llenadora');
+  const logsCol  = collection(db, 'tableros', 'llenadora', 'logs');
 
   try{
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(boardRef);
-      if(!snap.exists()){
-        throw new Error('El tablero no está inicializado. Creá tableros/llenadora.');
-      }
+      if(!snap.exists()){ throw new Error('El tablero no está inicializado. Creá tableros/llenadora.'); }
       const current = snap.data().current;
-      if(!canTransition(ROLE, current, nextKey)){
-        throw new Error('El estado cambió; actualizá la página.');
-      }
+      if(!canTransition(ROLE, current, nextKey)){ throw new Error('El estado cambió; actualizá la página.'); }
       tx.update(boardRef, { current: nextKey, updatedAt: serverTimestamp() });
-      await addDoc(logsCol, {
-        ts: serverTimestamp(),
-        uid: (auth.currentUser?.uid)||'anon',
-        role: ROLE,
-        from: current,
-        to: nextKey,
-        action: actionLabel,
-        note
-      });
+      await addDoc(logsCol, { ts: serverTimestamp(), uid:(auth.currentUser?.uid)||'anon', role: ROLE, from: current, to: nextKey, action: actionLabel, note });
     });
     if(notaInput) notaInput.value='';
-  }catch(e){
-    console.error(e);
-    alert('No se pudo aplicar: ' + e.message);
-  }
+  }catch(e){ console.error(e); alert('No se pudo aplicar: ' + e.message); }
 }

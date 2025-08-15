@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cambio de sabor — Estado de Llenadora (CIP)</title>
   <link rel="stylesheet" href="estilos.css" />
-  <script type="module" src="app.js?v=3"></script>
+  
 </head>
 <body>
   <div class="wrap">
@@ -28,7 +28,7 @@
         </select>
         <input id="pin" type="password" placeholder="PIN del sector (p.ej. 1111)" />
         <button id="btnLogin" class="btn primary">Entrar</button>
-        <small style="opacity:.75">Habilitá en Firebase: <strong>Auth → Sign-in method → Anonymous</strong>. Creá colección <code>demo</code> con docs <code>operacion</code>, <code>elaboracion</code>, <code>materias</code> y campo <code>pin</code> (ej: 1111/2222/3333).</small>
+        <small style="opacity:.75">Auth → Sign-in method: Anonymous ON. Colección <code>demo</code> con docs <code>operacion|elaboracion|materias</code> y campo <code>pin</code> tipo <em>string</em>.</small>
       </div>
 
       <div id="loggedBox" style="display:none">
@@ -56,5 +56,6 @@
       </div>
     </section>
   </div>
+  <script type="module" src="app.js?v=4"></script>
 </body>
 </html>
