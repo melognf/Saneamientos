@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cambio de sabor — Estado de Llenadora (CIP)</title>
   <link rel="stylesheet" href="estilos.css" />
-  <script type="module" src="app.js?v=6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="module" src="app.js?v=7"></script>
 </head>
 <body>
   <div class="wrap">
@@ -53,6 +54,11 @@
           <h4>Historial</h4>
           <div id="logList"></div>
         </div>
+          <div class="chart-wrap">
+          <h4>Duración por paso (último ciclo OK)</h4>
+          <canvas id="chartCycle" height="160"></canvas>
+        </div>
+
       </div>
     </section>
   </div>
