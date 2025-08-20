@@ -82,3 +82,39 @@ header{display:flex;gap:12px;align-items:center;justify-content:space-between;ma
 
 .btn.danger{ background:#dc2626; color:#fff; }
 .btn.danger:hover{ filter:brightness(1.08); }
+
+/* Cabecera por ciclo y alternado de colores en historial */
+.cycle-head{
+  margin-top:10px; padding:6px 8px; border-radius:8px;
+  font-weight:700; font-size:13px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);
+}
+.cycle-head.odd  { color:#eab308; }  /* ámbar */
+.cycle-head.even { color:#60a5fa; }  /* celeste */
+
+.log-item.odd  { color:#eab308; }
+.log-item.even { color:#60a5fa; }
+
+.log-item strong, .log-item em { color: inherit; }
+
+/* fuerza color de bloque y de sus hijos (excepto <time>) */
+.log-item.odd, .log-item.odd > div, .log-item.odd strong, .log-item.odd em { 
+  color: #eab308 !important; 
+}
+.log-item.even, .log-item.even > div, .log-item.even strong, .log-item.even em { 
+  color: #60a5fa !important; 
+}
+/* mantené el timestamp en gris */
+.log-item time { color: var(--muted) !important; }
+
+.cycle-head.odd  { color:#eab308; }
+.cycle-head.even { color:#60a5fa; }
+
+.log-item.odd, .log-item.odd > div, .log-item.odd strong, .log-item.odd em { 
+  color:#eab308 !important;
+}
+.log-item.even, .log-item.even > div, .log-item.even strong, .log-item.even em { 
+  color:#60a5fa !important;
+}
+.log-item time { color: var(--muted) !important; }

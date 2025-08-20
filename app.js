@@ -1,21 +1,29 @@
-// app.js v11 — login demo con PIN + abortar ciclo + timeline Gantt (cero en primer “from”)
-// Requiere: <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> antes de app.js
+// app.js v13.1 — login + ciclos + timeline + mail (Apps Script)
 import { db, auth } from './firebase-config.js';
 import {
   doc, getDoc, onSnapshot, runTransaction, setDoc,
   collection, orderBy, query, limit, serverTimestamp,
-  where, getDocs
+  where, getDocs, writeBatch, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-let cycleChart = null, unsubCycles = null;
+// --- URL del Web App de Apps Script (tu deployment activo) ---
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbz_JyvsgkqipFcrPQeLZH8z1riczPzGEzlJ6YkzqSjZb4Y97fEAq3VhTJcUg1xCfDmY0w/exec";
 
+// --- constantes de export del gráfico ---
+const EXPORT_DPR = 2;                  // escala del PNG/JPEG al exportar
+const MAX_DATURL_BYTES = 900_000;      // si el PNG excede esto, intento JPEG
+
+let cycleChart = null, unsubCycles = null;
 const BOARD_ID = 'llenadora';
 
-// Escala del timeline (ancho proporcional al tiempo)
-const PX_PER_MIN   = 40;   // píxeles por minuto
-const MIN_CANVAS_W = 700;  // ancho mínimo px
+// Escala del timeline y layout del chart
+const PX_PER_MIN       = 50;           // ↑ un poco para evitar compresión horizontal
+const MIN_CANVAS_W     = 700;
+const CHART_ROW_HEIGHT = 38;           // altura por fila (label)
+const CHART_MIN_HEIGHT = 220;          // altura mínima
 
+// Estados
 const STATES = [
   { key:'sin_solicitud',    label:'Sin solicitud de CIP' },
   { key:'cip_solicitado',   label:'CIP solicitado por Operación' },
@@ -27,6 +35,7 @@ const STATES = [
   { key:'produccion_ok',    label:'Producción OK' }
 ];
 
+// Transiciones por rol
 const TRANSITIONS = {
   operacion: {
     sin_solicitud:       [ {to:'cip_solicitado', action:'Solicitar CIP'} ],
@@ -47,7 +56,7 @@ const TRANSITIONS = {
   }
 };
 
-let USER=null, ROLE=null, currentState='sin_solicitud';
+let USER=null, ROLE=null, currentState='sin_solicitud', boardCycle=1;
 let unsubBoard=null, unsubLogs=null;
 
 // ---------- UI refs ----------
@@ -91,6 +100,15 @@ function formatTs(ts) {
     hour12:false, timeZone: TZ
   }).format(d);
 }
+
+// ---------- Misc utils ----------
+function stateIndex(key){ return STATES.findIndex(s=>s.key===key); }
+function labelFromKey(key){ const s=STATES.find(x=>x.key===key); return s? s.label: key; }
+function prettyRole(r){ return r==='operacion'?'Operación':(r==='elaboracion'?'Elaboración':(r==='materias'?'Materias Primas':String(r))); }
+function escapeHtml(s){ const map={ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }; return String(s).replace(/[&<>"']/g,m=>map[m]); }
+function canTransition(role, from, to){ const opts=(TRANSITIONS[role]&&TRANSITIONS[role][from])||[]; return opts.some(o=>o.to===to); }
+function msToMin(ms){ return Math.round((ms/60000)*100)/100; }
+const waitForPaint = () => new Promise(r => requestAnimationFrame(()=>r()));
 
 // ---------- Init/Listeners ----------
 btnInitBoard?.addEventListener('click', createBoard);
@@ -174,6 +192,7 @@ function setupSubs(){
     initBox.style.display = 'none';
     const data = snap.data();
     currentState = data.current || 'sin_solicitud';
+    boardCycle   = data.cycle   || 1;
     renderStepper();
     renderActions();
     estadoLabel.textContent = labelFromKey(currentState);
@@ -183,7 +202,7 @@ function setupSubs(){
   const qLogs = query(
     collection(db, 'tableros', BOARD_ID, 'logs'),
     orderBy('ts', 'desc'),
-    limit(200)
+    limit(500)
   );
 
   if (unsubLogs) unsubLogs();
@@ -197,21 +216,37 @@ function setupSubs(){
       return;
     }
 
+    // Agrupar por ciclo (desc)
+    const groups = new Map();
     snap.forEach(docSnap => {
-      const item = docSnap.data();
-      const when = formatTs(item.ts);
-      const nota = item.note ? ' · Nota: ' + escapeHtml(item.note) : '';
-      const pendiente = (docSnap.metadata?.hasPendingWrites || snap.metadata?.hasPendingWrites)
-        ? ' (pendiente)'
-        : '';
+      const item = { id: docSnap.id, ...docSnap.data(), _meta: docSnap.metadata };
+      const cyc = Number.isFinite(item.cycle) ? item.cycle : 0;
+      if (!groups.has(cyc)) groups.set(cyc, []);
+      groups.get(cyc).push(item);
+    });
+    const cyclesDesc = Array.from(groups.keys()).sort((a,b)=>b-a);
 
-      const row = document.createElement('div');
-      row.className = 'log-item';
-      row.innerHTML = `
-        <time title="${TZ}${pendiente}">${when}</time>
-        <div><strong>${prettyRole(item.role)}</strong> → <em>${item.action}</em>
-        · Estado: <strong>${labelFromKey(item.to)}</strong>${nota}</div>`;
-      logList.appendChild(row);
+    // Alternado por índice para color (even/odd)
+    cyclesDesc.forEach((cyc, idx) => {
+      const stripeClass = (idx % 2 === 0) ? 'even' : 'odd';
+      // Cabecera de ciclo
+      const head = document.createElement('div');
+      head.className = `cycle-head ${stripeClass}`;
+      head.textContent = `Ciclo ${cyc}`;
+      logList.appendChild(head);
+      // Items del ciclo
+      for (const item of groups.get(cyc)){
+        const when = formatTs(item.ts);
+        const nota = item.note ? ' · Nota: ' + escapeHtml(item.note) : '';
+        const pendiente = (item._meta?.hasPendingWrites || snap.metadata?.hasPendingWrites) ? ' (pendiente)' : '';
+        const row = document.createElement('div');
+        row.className = `log-item ${stripeClass}`;
+        row.innerHTML = `
+          <time title="${TZ}${pendiente}">${when}</time>
+          <div><strong>${prettyRole(item.role)}</strong> → <em>${item.action}</em>
+          · Estado: <strong>${labelFromKey(item.to)}</strong>${nota}</div>`;
+        logList.appendChild(row);
+      }
     });
   });
 
@@ -253,11 +288,10 @@ function render(){
   estadoLabel.textContent=labelFromKey(currentState);
 }
 
-// Todos los pasos activos en ROJO (parpadeo lo da el CSS)
+// Pasos activos (parpadeo vía CSS de tu hoja)
 function renderStepper(){
   stepperBox.innerHTML = '';
   const curIdx = stateIndex(currentState);
-
   STATES.forEach((s, idx) => {
     const el = document.createElement('div');
     el.className = 'step';
@@ -288,7 +322,7 @@ function renderActions(){
     }
   }
 
-  // 👉 Botón ABORTAR (solo Operación y si no estamos en el inicio)
+  // Botón ABORTAR (solo Operación)
   if (ROLE === 'operacion' && currentState !== 'sin_solicitud') {
     const abortBtn = document.createElement('button');
     abortBtn.className = 'btn';
@@ -298,64 +332,102 @@ function renderActions(){
     abortBtn.onclick = abortCycle;
     actionsBox.appendChild(abortBtn);
   }
+
+  // Limpieza (solo Operación)
+  if (ROLE === 'operacion') {
+    const row = document.createElement('div');
+    row.style.display='flex'; row.style.gap='8px'; row.style.flexWrap='wrap';
+
+    const b1 = document.createElement('button');
+    b1.className='btn ghost';
+    b1.textContent='Borrar ciclo ACTUAL';
+    b1.title='Elimina los logs del ciclo en curso y su resumen';
+    b1.onclick = clearCurrentCycle;
+
+    const b2 = document.createElement('button');
+    b2.className='btn ghost';
+    b2.textContent='Borrar TODO el historial';
+    b2.title='Elimina TODOS los logs y resúmenes y reinicia el tablero';
+    b2.onclick = clearAllHistory;
+
+    row.appendChild(b1); row.appendChild(b2);
+    actionsBox.appendChild(row);
+  }
 }
 
-function stateIndex(key){ return STATES.findIndex(s=>s.key===key); }
-function labelFromKey(key){ const s=STATES.find(x=>x.key===key); return s? s.label: key; }
-function prettyRole(r){ return r==='operacion'?'Operación':(r==='elaboracion'?'Elaboración':(r==='materias'?'Materias Primas':String(r))); }
-function escapeHtml(s){ const map={ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }; return String(s).replace(/[&<>"']/g,m=>map[m]); }
-function canTransition(role, from, to){ const opts=(TRANSITIONS[role]&&TRANSITIONS[role][from])||[]; return opts.some(o=>o.to===to); }
-
-// ---------- Transición + cierre de ciclo + resumen ----------
+// ---------- Transición + cierre de ciclo + resumen + mail ----------
 async function applyTransition(nextKey, actionLabel){
-  if(!USER||!ROLE) return;
-  if(!canTransition(ROLE, currentState, nextKey)){ alert('Transición no permitida para tu sector.'); return; }
+  if (!USER || !ROLE) return;
 
-  const note=(notaInput?.value||'').trim();
-  const boardRef = doc(db,'tableros',BOARD_ID);
-  const logsCol  = collection(db, 'tableros', BOARD_ID, 'logs');
-  const logRef   = doc(logsCol); // ID auto
+  if (!canTransition(ROLE, currentState, nextKey)) {
+    alert('Transición no permitida para tu sector.');
+    return;
+  }
 
-  let cycleUsed = null;
+  const note = (notaInput?.value || '').trim();
+  const boardRef = doc(db, 'tableros', BOARD_ID);
+  const logRef   = doc(collection(db, 'tableros', BOARD_ID, 'logs')); // ID auto
 
-  try{
-    await runTransaction(db, async (tx)=>{
+  let usedCycle = null;
+
+  try {
+    await runTransaction(db, async (tx) => {
       const snap = await tx.get(boardRef);
-      if(!snap.exists()) throw new Error('El tablero no está inicializado.');
+      if (!snap.exists()) throw new Error('El tablero no está inicializado.');
+
       const cur   = snap.data().current;
       const cycle = snap.data().cycle || 1;
-      cycleUsed   = cycle;
+      usedCycle   = cycle;
 
-      if(!canTransition(ROLE, cur, nextKey)) throw new Error('El estado cambió; actualizá.');
+      if (!canTransition(ROLE, cur, nextKey)) {
+        throw new Error('El estado cambió; actualizá.');
+      }
 
-      // Estado
-      tx.update(boardRef, {
-        current: nextKey,
-        updatedAt: serverTimestamp(),
-        ...(nextKey === 'produccion_ok' ? { cycle: cycle + 1 } : {})
-      });
+      // Avance de ciclo cuando volvemos a sin_solicitud (nuevo ciclo)
+      let newCycle = cycle;
+      if (nextKey === 'sin_solicitud' && currentState !== 'sin_solicitud') {
+        newCycle = cycle + 1;
+      }
 
-      // Log (mismo commit)
+      // Estado tablero (+ posible incremento de ciclo)
+      const updateData = { current: nextKey, updatedAt: serverTimestamp() };
+      if (newCycle !== cycle) updateData.cycle = newCycle;
+      tx.update(boardRef, updateData);
+
+      // Log: si arranca nuevo ciclo, el log pertenece al ciclo nuevo
       tx.set(logRef, {
         ts: serverTimestamp(),
-        uid: (auth.currentUser?.uid)||'anon',
+        uid: (auth.currentUser?.uid) || 'anon',
         role: ROLE,
         from: cur,
         to: nextKey,
         action: actionLabel,
         note,
-        cycle
+        cycle: newCycle
       });
+
+      // Si cerramos en 'produccion_ok', el resumen corresponde al ciclo que cierra
+      if (nextKey === 'produccion_ok') {
+        usedCycle = cycle;
+      }
     });
 
-    if(notaInput) notaInput.value='';
+    if (notaInput) notaInput.value = '';
 
-    // Si cerramos ciclo, calcular y guardar resumen
-    if (nextKey === 'produccion_ok' && cycleUsed != null) {
-      await computeAndSaveTaskTimelineSummary(cycleUsed);
+    // Si llegamos a producción ok → resumen + mail
+    if (nextKey === 'produccion_ok' && usedCycle != null) {
+      const summary = await computeAndSaveTaskTimelineSummary(usedCycle);
+      // Esperar a que el chart termine de dibujar
+      await waitForPaint();
+      await new Promise(r => setTimeout(r, 120));
+      const chartUrlPNG = await captureChartPNG(chartCanvas, EXPORT_DPR);
+      const chartUrl = (chartUrlPNG && chartUrlPNG.length > MAX_DATURL_BYTES)
+        ? await captureChartAsJPEG(chartCanvas, 0.88)
+        : chartUrlPNG;
+      await sendReportFromSummary(usedCycle, summary, chartUrl);
     }
 
-  }catch(e){
+  } catch (e) {
     console.error(e);
     alert('No se pudo aplicar: ' + e.message);
   }
@@ -367,7 +439,7 @@ async function abortCycle(){
   if(currentState === 'sin_solicitud') return;
 
   const motivo = prompt('⚠️ Vas a ABORTAR el ciclo actual y volver a 0.\nOpcional: escribí un motivo.');
-  if(motivo === null) return; // canceló
+  if(motivo === null) return;
 
   const boardRef = doc(db,'tableros',BOARD_ID);
   const logsCol  = collection(db, 'tableros', BOARD_ID, 'logs');
@@ -383,14 +455,12 @@ async function abortCycle(){
       const cycle = snap.data().cycle || 1;
       cycleUsed   = cycle;
 
-      // Estado → inicio y ciclo+1
       tx.update(boardRef, {
         current: 'sin_solicitud',
         updatedAt: serverTimestamp(),
         cycle: cycle + 1
       });
 
-      // Log del aborto (queda en el ciclo que cerramos)
       tx.set(logRef, {
         ts: serverTimestamp(),
         uid: (auth.currentUser?.uid)||'anon',
@@ -403,7 +473,6 @@ async function abortCycle(){
       });
     });
 
-    // Resumen del ciclo abortado
     if (cycleUsed != null) {
       await computeAndSaveTaskTimelineSummary(cycleUsed, { aborted: true, abortReason: motivo||'' });
     }
@@ -413,23 +482,70 @@ async function abortCycle(){
   }
 }
 
-// ---------- Resumen tipo timeline (pares inicio→fin) ----------
-function msToMin(ms){ return Math.round((ms/60000)*100)/100; }
+// ---------- BORRAR CICLO ACTUAL ----------
+async function clearCurrentCycle(){
+  if(ROLE !== 'operacion'){ alert('Solo Operación puede borrar.'); return; }
+  const ok = confirm('¿Borrar SOLO el ciclo ACTUAL? Esto eliminará los logs (y el resumen si existe).');
+  if(!ok) return;
 
+  try{
+    const col = collection(db, 'tableros', BOARD_ID, 'logs');
+    await deleteCollectionBatched(query(col, where('cycle','==', boardCycle), limit(300)));
+    try { await deleteDoc(doc(db, 'tableros', BOARD_ID, 'cycles', String(boardCycle))); } catch{}
+    alert('Ciclo actual borrado.');
+  }catch(e){
+    console.error(e); alert('No se pudo borrar el ciclo actual: '+e.message);
+  }
+}
+
+// ---------- BORRAR TODO EL HISTORIAL ----------
+async function clearAllHistory(){
+  if(ROLE !== 'operacion'){ alert('Solo Operación puede borrar.'); return; }
+  const ok = confirm('⚠️ Esto BORRARÁ TODOS los logs y resúmenes y reiniciará el tablero. ¿Continuar?');
+  if(!ok) return;
+  const ok2 = confirm('Confirmá nuevamente: se eliminará TODO el historial.');
+  if(!ok2) return;
+
+  try{
+    await deleteCollectionBatched(query(collection(db,'tableros',BOARD_ID,'logs'),   limit(300)));
+    await deleteCollectionBatched(query(collection(db,'tableros',BOARD_ID,'cycles'), limit(300)));
+    await setDoc(
+      doc(db,'tableros',BOARD_ID),
+      { current:'sin_solicitud', cycle: 1, updatedAt: serverTimestamp() },
+      { merge: true }
+    );
+    alert('Historial borrado y tablero reiniciado.');
+  }catch(e){
+    console.error(e); alert('No se pudo borrar todo: '+e.message);
+  }
+}
+
+// ---------- Borrado por lotes ----------
+async function deleteCollectionBatched(qRef){
+  while(true){
+    const snap = await getDocs(qRef);
+    if(snap.empty) break;
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    if (snap.size < 300) break;
+  }
+}
+
+// ---------- Resumen tipo timeline ----------
 async function computeAndSaveTaskTimelineSummary(cycleId, extraMeta = {}){
-  // Traer logs del ciclo y ordenar en cliente (sin índices)
+  // Traer logs del ciclo y ordenar en cliente
   const qLogs = query(
     collection(db, 'tableros', BOARD_ID, 'logs'),
     where('cycle', '==', cycleId)
   );
   const snap = await getDocs(qLogs);
-  if (snap.empty) return;
+  if (snap.empty) return null;
 
   const logs = [];
   snap.forEach(d => logs.push({ id:d.id, ...d.data() }));
   logs.sort((a,b) => a.ts.toDate() - b.ts.toDate()); // asc
 
-  // Definición de pares (inicio → fin)
   const PAIRS = [
     { from:'cip_solicitado',   to:'cip_en_curso',     label:'Demora inicio CIP',         color:'#f59e0b' },
     { from:'cip_en_curso',     to:'hisopado_pend',    label:'Duración CIP',              color:'#2563eb' },
@@ -439,14 +555,12 @@ async function computeAndSaveTaskTimelineSummary(cycleId, extraMeta = {}){
     { from:'arranque_en_curso',to:'produccion_ok',    label:'Duración arranque',         color:'#7c3aed' }
   ];
 
-  // Cero de la timeline = primer evento 'from' que aparezca; si no, el primer log
   const firstFromIdx = logs.findIndex(lg => PAIRS.some(p => lg.to === p.from));
   const t0 = (firstFromIdx !== -1)
     ? logs[firstFromIdx].ts.toDate().getTime()
     : logs[0].ts.toDate().getTime();
 
-  // Múltiples segmentos por par (si hubo re-trabajo)
-  const segments = []; // [{key,label,startMin,endMin,color}]
+  const segments = [];
   const accMs = new Array(PAIRS.length).fill(0);
   const waiting = new Array(PAIRS.length).fill(null);
 
@@ -460,20 +574,13 @@ async function computeAndSaveTaskTimelineSummary(cycleId, extraMeta = {}){
         const startMin = msToMin(waiting[i] - t0);
         const endMin   = msToMin(t - t0);
         accMs[i] += Math.max(0, t - waiting[i]);
-        segments.push({
-          key: `${p.from}->${p.to}`,
-          label: p.label,
-          startMin, endMin,
-          color: p.color
-        });
+        segments.push({ key:`${p.from}->${p.to}`, label:p.label, startMin, endMin, color:p.color });
         waiting[i] = null;
       }
     }
   }
 
-  const pairs = PAIRS.map((p,i)=>({
-    key:`${p.from}->${p.to}`, label:p.label, ms:accMs[i], min:msToMin(accMs[i])
-  }));
+  const pairs = PAIRS.map((p,i)=>({ key:`${p.from}->${p.to}`, label:p.label, ms:accMs[i], min:msToMin(accMs[i]) }));
 
   const meta = {
     cycle: cycleId,
@@ -483,13 +590,14 @@ async function computeAndSaveTaskTimelineSummary(cycleId, extraMeta = {}){
     createdAt: serverTimestamp()
   };
 
+  const summary = { pairs, segments, ...meta, ...extraMeta };
   const ref = doc(db, 'tableros', BOARD_ID, 'cycles', String(cycleId));
-  await setDoc(ref, { pairs, segments, ...meta, ...extraMeta });
-
-  renderCycleChart({ pairs, segments, ...meta, ...extraMeta });
+  await setDoc(ref, summary);
+  renderCycleChart(summary);
+  return summary;
 }
 
-// ---------- Gráfico Timeline (floating bars) ----------
+// ---------- Gráfico Timeline ----------
 function renderCycleChart(summary){
   const el = chartCanvas;
   if (!el) return;
@@ -501,7 +609,6 @@ function renderCycleChart(summary){
 
   if (cycleChart) { cycleChart.destroy(); cycleChart = null; }
 
-  // Ajuste de ancho proporcional a la duración
   const container = el.parentElement;
   container.style.overflowX = 'auto';
 
@@ -513,12 +620,17 @@ function renderCycleChart(summary){
   }
   const desiredPx = Math.max(MIN_CANVAS_W, Math.ceil(totalSpanMin * PX_PER_MIN));
   el.style.width  = desiredPx + 'px';
-  el.style.height = '100%';
 
-  const xSuggestedMax = Math.max(0, Math.ceil(totalSpanMin * 1.05));
-
+  // Datos para apilar
   if (summary?.segments?.length){
     const labels = Array.from(new Set(summary.segments.map(s => s.label)));
+
+    // altura dinámica por filas
+    const rows = labels.length || 1;
+    el.style.height = Math.max(CHART_MIN_HEIGHT, rows * CHART_ROW_HEIGHT) + 'px';
+
+    // step del eje X según rango
+    const step = totalSpanMin > 60 ? 10 : (totalSpanMin > 30 ? 5 : 2);
 
     const datasets = summary.segments.map(seg => ({
       label: seg.label,
@@ -527,7 +639,10 @@ function renderCycleChart(summary){
       backgroundColor: seg.color,
       borderColor: seg.color,
       borderWidth: 0,
-      borderSkipped: false
+      borderSkipped: false,
+      barPercentage: 1.0,
+      categoryPercentage: 0.9,
+      maxBarThickness: 30
     }));
 
     cycleChart = new Chart(el.getContext('2d'), {
@@ -537,13 +652,16 @@ function renderCycleChart(summary){
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
+        animation: false,                 // ← estabiliza la captura
+        layout: { padding: { left: 8, right: 12, top: 6, bottom: 6 } },
         scales: {
-          y: { stacked: true },
+          y: { stacked: true, grid: { color:'rgba(255,255,255,.08)' } },
           x: {
-            stacked: false,
             beginAtZero: true,
             min: 0,
-            suggestedMax: xSuggestedMax,
+            suggestedMax: Math.max(0, Math.ceil(totalSpanMin * 1.05)),
+            ticks: { stepSize: step },
+            grid: { color:'rgba(255,255,255,.08)' },
             title: { display: true, text: 'min desde inicio del ciclo' }
           }
         },
@@ -571,16 +689,22 @@ function renderCycleChart(summary){
   if (summary?.pairs?.length){
     const labels = summary.pairs.filter(x => x.min > 0).map(x => x.label);
     const dataMin = summary.pairs.filter(x => x.min > 0).map(x => x.min);
+    const rows = labels.length || 1;
+    el.style.height = Math.max(CHART_MIN_HEIGHT, rows * CHART_ROW_HEIGHT) + 'px';
+
+    const step = totalSpanMin > 60 ? 10 : (totalSpanMin > 30 ? 5 : 2);
 
     cycleChart = new Chart(el.getContext('2d'), {
       type: 'bar',
-      data: { labels, datasets: [{ label:`Duración por tarea (ciclo ${summary.cycle})`, data: dataMin }] },
+      data: { labels, datasets: [{ label:`Duración por tarea (ciclo ${summary.cycle})`, data: dataMin, maxBarThickness: 30, categoryPercentage: 0.9, barPercentage: 1.0 }] },
       options: {
         indexAxis: 'y',
         responsive:true,
         maintainAspectRatio:false,
-        scales: {
-          x: { beginAtZero:true, min:0, suggestedMax:xSuggestedMax, title:{ display:true, text:'min' } }
+        animation: false,
+        scales: { 
+          y: { grid: { color:'rgba(255,255,255,.08)' } },
+          x: { beginAtZero:true, min:0, suggestedMax: Math.max(0, Math.ceil(totalSpanMin * 1.05)), ticks: { stepSize: step }, grid: { color:'rgba(255,255,255,.08)' }, title:{ display:true, text:'min' } } 
         },
         plugins: { legend:{ display:false } }
       }
@@ -588,7 +712,106 @@ function renderCycleChart(summary){
   }
 }
 
-// ---------- Crear tablero (con ciclo=1) ----------
+// ---------- Captura de gráfico ----------
+async function captureChartPNG(canvas, dpr = 2){
+  if (!canvas) return null;
+  try{
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(canvas.width,  Math.round(rect.width  * dpr));
+    const h = Math.max(canvas.height, Math.round(rect.height * dpr));
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    const ctx = tmp.getContext('2d');
+
+    // fondo tomado del body (evita transparencias raras en email/pdf)
+    try{
+      const bg = getComputedStyle(document.body).backgroundColor || '#0b1020';
+      ctx.fillStyle = bg; ctx.fillRect(0,0,w,h);
+    }catch{}
+
+    ctx.drawImage(canvas, 0, 0, w, h);
+    return tmp.toDataURL('image/png');
+  }catch(e){
+    console.warn('No se pudo capturar PNG:', e);
+    return null;
+  }
+}
+
+async function captureChartAsJPEG(canvas, quality = 0.82){
+  if (!canvas) return null;
+  try{
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(canvas.width,  Math.round(rect.width  * EXPORT_DPR));
+    const h = Math.max(canvas.height, Math.round(rect.height * EXPORT_DPR));
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    const ctx = tmp.getContext('2d');
+    // fondo sólido
+    ctx.fillStyle = '#0b1020'; ctx.fillRect(0,0,w,h);
+    ctx.drawImage(canvas, 0, 0, w, h);
+    return tmp.toDataURL('image/jpeg', quality);
+  }catch(e){
+    console.warn('No se pudo capturar JPEG:', e);
+    return null;
+  }
+}
+
+// ---------- Envío de reporte (desde summary) ----------
+async function sendReportFromSummary(cycleId, summary, chartUrl){
+  if (!APPSCRIPT_URL) return;
+  try{
+    const pairs = Array.isArray(summary?.pairs)
+      ? summary.pairs.map(p => ({ label:p.label, min: Math.round((p.min||0)*100)/100 }))
+      : [];
+    const totalMin = typeof summary?.totalMin === 'number'
+      ? Math.round(summary.totalMin*100)/100
+      : pairs.reduce((a,b)=>a+(b.min||0),0);
+
+    // Logs del ciclo SIN orderBy; ordeno en cliente
+    let logs = [];
+    try{
+      const logsSnap = await getDocs(query(
+        collection(db, 'tableros', BOARD_ID, 'logs'),
+        where('cycle','==', cycleId)
+      ));
+      logsSnap.forEach(d => {
+        const it = d.data();
+        logs.push({
+          when: it.ts?.toDate ? it.ts.toDate().toISOString() : null,
+          role: it.role, action: it.action, to: it.to, note: it.note||''
+        });
+      });
+      logs.sort((a,b)=> (a.when||'').localeCompare(b.when||''));
+    }catch(e){
+      console.warn('Logs del ciclo no disponibles, sigo sin logs:', e);
+    }
+
+    const payload = {
+      boardId: BOARD_ID,
+      cycleId,
+      totalMin,
+      pairs,
+      chartUrl: chartUrl || null,
+      startedAt: summary.startedAt?.toDate ? summary.startedAt.toDate().toISOString() : null,
+      finishedAt: summary.finishedAt?.toDate ? summary.finishedAt.toDate().toISOString() : null,
+      logs
+    };
+
+    console.log('[report] POST → Apps Script', {cycleId, pairs: pairs.length, logs: logs.length, hasChart: !!chartUrl});
+    await fetch(APPSCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    });
+    console.log('[report] Disparado (no-cors).');
+
+  }catch(e){
+    console.warn('sendReportFromSummary falló:', e);
+  }
+}
+
+// ---------- Crear tablero ----------
 async function createBoard() {
   try{
     await setDoc(
