@@ -8,7 +8,7 @@ import {
 import { onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // --- URL del Web App de Apps Script (tu deployment activo) ---
-const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbz_JyvsgkqipFcrPQeLZH8z1riczPzGEzlJ6YkzqSjZb4Y97fEAq3VhTJcUg1xCfDmY0w/exec";
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwxcwhVjvTcJUzbavyqQGxD7cL7mVqurmmBvcDF02Q1kffw8dDl10zM1HgNwkzXAKJ0sw/exec";
 
 // --- constantes de export del gráfico ---
 const EXPORT_DPR = 2;                  // escala del PNG/JPEG al exportar
@@ -602,115 +602,140 @@ function renderCycleChart(summary){
   const el = chartCanvas;
   if (!el) return;
 
-  if (typeof Chart === 'undefined') {
+  // Chart.js presente
+  if (typeof Chart === 'undefined' || !Chart) {
     console.warn('Chart.js no está cargado. Agregá <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> antes de app.js');
     return;
   }
 
-  if (cycleChart) { cycleChart.destroy(); cycleChart = null; }
+  try {
+    // destruir instancia previa
+    if (cycleChart) { cycleChart.destroy(); cycleChart = null; }
 
-  const container = el.parentElement;
-  container.style.overflowX = 'auto';
+    // contenedor con scroll horizontal
+    const container = el.parentElement;
+    if (container) container.style.overflowX = 'auto';
 
-  let totalSpanMin = 0;
-  if (summary?.segments?.length) {
-    totalSpanMin = Math.max(...summary.segments.map(s => s.endMin));
-  } else if (summary?.pairs?.length) {
-    totalSpanMin = summary.pairs.reduce((acc, p) => acc + (p.min || 0), 0);
-  }
-  const desiredPx = Math.max(MIN_CANVAS_W, Math.ceil(totalSpanMin * PX_PER_MIN));
-  el.style.width  = desiredPx + 'px';
+    // calcular span total (min) para el ancho del canvas
+    let totalSpanMin = 0;
+    if (Array.isArray(summary?.segments) && summary.segments.length > 0) {
+      totalSpanMin = Math.max(...summary.segments.map(s => Number(s?.endMin) || 0));
+    } else if (Array.isArray(summary?.pairs) && summary.pairs.length > 0) {
+      totalSpanMin = summary.pairs.reduce((acc, p) => acc + (Number(p?.min) || 0), 0);
+    }
 
-  // Datos para apilar
-  if (summary?.segments?.length){
-    const labels = Array.from(new Set(summary.segments.map(s => s.label)));
+    const desiredPx = Math.max(MIN_CANVAS_W, Math.ceil(totalSpanMin * PX_PER_MIN));
+    el.style.width  = desiredPx + 'px';
+    el.style.height = '260px'; // valor base; abajo lo ajustamos si hace falta
 
-    // altura dinámica por filas
-    const rows = labels.length || 1;
-    el.style.height = Math.max(CHART_MIN_HEIGHT, rows * CHART_ROW_HEIGHT) + 'px';
+    const xSuggestedMax = Math.max(0, Math.ceil(totalSpanMin * 1.05));
 
-    // step del eje X según rango
-    const step = totalSpanMin > 60 ? 10 : (totalSpanMin > 30 ? 5 : 2);
+    // ---- Caso principal: timeline con segments (rangos [startMin, endMin]) ----
+    if (Array.isArray(summary?.segments) && summary.segments.length){
+      const labels = Array.from(new Set(
+        summary.segments.map(s => s?.label).filter(Boolean)
+      ));
 
-    const datasets = summary.segments.map(seg => ({
-      label: seg.label,
-      stack: 'timeline',
-      data: labels.map(lbl => lbl === seg.label ? [seg.startMin, seg.endMin] : null),
-      backgroundColor: seg.color,
-      borderColor: seg.color,
-      borderWidth: 0,
-      borderSkipped: false,
-      barPercentage: 1.0,
-      categoryPercentage: 0.9,
-      maxBarThickness: 30
-    }));
+      // Alto dinámico por cantidad de filas
+      const rows = Math.max(1, labels.length);
+      const rowHeight = 34;   // px por fila
+      const minHeight = 240;  // piso cómodo
+      el.style.height = Math.max(minHeight, rows * rowHeight) + 'px';
 
-    cycleChart = new Chart(el.getContext('2d'), {
-      type: 'bar',
-      data: { labels, datasets },
-      options: {
-        indexAxis: 'y',
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,                 // ← estabiliza la captura
-        layout: { padding: { left: 8, right: 12, top: 6, bottom: 6 } },
-        scales: {
-          y: { stacked: true, grid: { color:'rgba(255,255,255,.08)' } },
-          x: {
-            beginAtZero: true,
-            min: 0,
-            suggestedMax: Math.max(0, Math.ceil(totalSpanMin * 1.05)),
-            ticks: { stepSize: step },
-            grid: { color:'rgba(255,255,255,.08)' },
-            title: { display: true, text: 'min desde inicio del ciclo' }
-          }
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const v = ctx.raw;
-                if (Array.isArray(v)) {
-                  const dur = Math.max(0, (v[1] - v[0])).toFixed(2);
-                  return `${ctx.dataset.label}: ${v[0].toFixed(2)} → ${v[1].toFixed(2)} min (duración ${dur} min)`;
+      const datasets = summary.segments.map(seg => ({
+        label: seg.label || '',
+        stack: 'timeline',
+        data: labels.map(lbl => lbl === (seg.label || '') ? [
+          Number(seg.startMin) || 0,
+          Number(seg.endMin)   || 0
+        ] : null),
+        backgroundColor: seg.color || '#999',
+        borderColor: seg.color || '#999',
+        borderWidth: 0,
+        borderSkipped: false,
+        barPercentage: 1,
+        categoryPercentage: 1
+      }));
+
+      cycleChart = new Chart(el.getContext('2d'), {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { stacked: true },
+            x: {
+              beginAtZero: true,
+              min: 0,
+              suggestedMax: xSuggestedMax,
+              title: { display: true, text: 'min desde inicio del ciclo' }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => {
+                  const v = ctx.raw;
+                  if (Array.isArray(v)) {
+                    const dur = Math.max(0, (v[1] - v[0])).toFixed(2);
+                    return `${ctx.dataset.label}: ${v[0].toFixed(2)} → ${v[1].toFixed(2)} min (duración ${dur} min)`;
+                  }
+                  return ctx.formattedValue;
                 }
-                return ctx.formattedValue;
               }
             }
           }
         }
-      }
-    });
-    return;
-  }
+      });
+      return;
+    }
 
-  // Fallback si no hay segments
-  if (summary?.pairs?.length){
-    const labels = summary.pairs.filter(x => x.min > 0).map(x => x.label);
-    const dataMin = summary.pairs.filter(x => x.min > 0).map(x => x.min);
-    const rows = labels.length || 1;
-    el.style.height = Math.max(CHART_MIN_HEIGHT, rows * CHART_ROW_HEIGHT) + 'px';
+    // ---- Fallback: solo pairs (barras simples por tarea) ----
+    if (Array.isArray(summary?.pairs) && summary.pairs.length){
+      const filtered = summary.pairs
+        .map(p => ({ label: String(p?.label || ''), min: Number(p?.min) || 0 }))
+        .filter(p => p.min > 0);
 
-    const step = totalSpanMin > 60 ? 10 : (totalSpanMin > 30 ? 5 : 2);
+      const labels = filtered.map(x => x.label);
+      const dataMin = filtered.map(x => x.min);
 
-    cycleChart = new Chart(el.getContext('2d'), {
-      type: 'bar',
-      data: { labels, datasets: [{ label:`Duración por tarea (ciclo ${summary.cycle})`, data: dataMin, maxBarThickness: 30, categoryPercentage: 0.9, barPercentage: 1.0 }] },
-      options: {
-        indexAxis: 'y',
-        responsive:true,
-        maintainAspectRatio:false,
-        animation: false,
-        scales: { 
-          y: { grid: { color:'rgba(255,255,255,.08)' } },
-          x: { beginAtZero:true, min:0, suggestedMax: Math.max(0, Math.ceil(totalSpanMin * 1.05)), ticks: { stepSize: step }, grid: { color:'rgba(255,255,255,.08)' }, title:{ display:true, text:'min' } } 
-        },
-        plugins: { legend:{ display:false } }
-      }
-    });
+      // Alto dinámico también acá
+      const rows = Math.max(1, labels.length);
+      el.style.height = Math.max(200, rows * 28) + 'px';
+
+      cycleChart = new Chart(el.getContext('2d'), {
+        type: 'bar',
+        data: { labels, datasets: [{ label:`Duración por tarea${summary?.cycle ? ` (ciclo ${summary.cycle})` : ''}`, data: dataMin }] },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              beginAtZero: true,
+              min: 0,
+              suggestedMax: xSuggestedMax,
+              title: { display: true, text: 'min' }
+            }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+      return;
+    }
+
+    // Si no hay datos, limpiar
+    const ctx = el.getContext('2d');
+    ctx && ctx.clearRect(0, 0, el.width, el.height);
+
+  } catch (e) {
+    console.error('renderCycleChart error:', e, summary);
   }
 }
+
 
 // ---------- Captura de gráfico ----------
 async function captureChartPNG(canvas, dpr = 2){
