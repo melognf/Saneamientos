@@ -8,7 +8,7 @@ import {
 import { onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // --- URL del Web App de Apps Script (tu deployment activo) ---
-const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwuZ_sXvjbuCvoK0vheZV8BBSPSJbAOSBMZo64Ufv2QVGLPgpB8WvVIiC7PjY3pW6IdbQ/exec";
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbydfyWoQPSQdp18J9p9y-9JNywLA7-VHA2DE_hCiPHsk8yIO5vhXsi2RPuq8zcspUYC1g/exec";
 
 // --- constantes de export del gráfico ---
 const EXPORT_DPR = 2;                  // escala del PNG/JPEG al exportar
