@@ -8,7 +8,7 @@ import {
 import { onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // --- URL del Web App de Apps Script (tu deployment activo) ---
-const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwz0KWl5EN3HjsvkQ1PUFG_aaCt71yZjf3Pz0Ivr6FxOOhBmsL0QARSZKlC7SkIAk8-tQ/exec";
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwu6RVyS8Tq8pdwSlKIqPk4DJ7zkIPACLv_PovHEo5YcYhi64yzpB9dQjDYmSf3qWy_ww/exec";
 
 
 
