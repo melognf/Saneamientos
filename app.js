@@ -8,9 +8,7 @@ import {
 import { onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // --- URL del Web App de Apps Script (tu deployment activo) ---
-const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwu6RVyS8Tq8pdwSlKIqPk4DJ7zkIPACLv_PovHEo5YcYhi64yzpB9dQjDYmSf3qWy_ww/exec";
-
-
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwnubDMBx16ZJMhNE410j2_WlMUkP_o3AqQE6yu0k8ghmverxbe6tBJMBmQzPQV-h1XbA/exec";
 
 // --- constantes de export del gráfico ---
 const EXPORT_DPR = 2;                  // escala del PNG/JPEG al exportar
@@ -24,6 +22,19 @@ const PX_PER_MIN       = 50;           // ↑ un poco para evitar compresión ho
 const MIN_CANVAS_W     = 700;
 const CHART_ROW_HEIGHT = 38;           // altura por fila (label)
 const CHART_MIN_HEIGHT = 220;          // altura mínima
+/** Colores de estilo */
+
+// ===== Nota preformateada (sabores) =====
+const NOTE_TEMPLATE = 'S:  | P: ';
+function isNoteTemplate(v){
+  return !v || /^s:\s*\|\s*p:\s*$/i.test(String(v).trim());
+}
+function ensureNoteTemplate(){
+  if (!notaInput) return;
+  if (!notaInput.value || isNoteTemplate(notaInput.value)) {
+    notaInput.value = NOTE_TEMPLATE;
+  }
+}
 
 // Estados
 const STATES = [
@@ -83,6 +94,15 @@ const chartCanvas  = document.getElementById('chartCycle');
 
 projInfo.textContent = 'Proyecto: ' + (window.__FIREBASE_PROJECT_ID__ || '(sin config)');
 console.log('Firebase projectId:', window.__FIREBASE_PROJECT_ID__);
+
+// Inicializo el molde de nota y dejo el cursor antes del “|”
+ensureNoteTemplate();
+notaInput?.addEventListener('focus', () => {
+  if (isNoteTemplate(notaInput.value)) {
+    const pos = Math.max(0, NOTE_TEMPLATE.indexOf('|'));
+    requestAnimationFrame(()=> notaInput.setSelectionRange(pos, pos));
+  }
+});
 
 // ---------- Helpers fecha ----------
 function hasTZ(tz){
@@ -288,6 +308,8 @@ function render(){
   renderStepper();
   renderActions();
   estadoLabel.textContent=labelFromKey(currentState);
+  // Aseguro el molde de la nota visible para el usuario
+  ensureNoteTemplate();
 }
 
 // Pasos activos (parpadeo vía CSS de tu hoja)
@@ -366,7 +388,10 @@ async function applyTransition(nextKey, actionLabel){
     return;
   }
 
-  const note = (notaInput?.value || '').trim();
+  // Nota: no guardar el molde vacío "S:  | P: "
+  const rawNote = (notaInput?.value || '').trim();
+  const note = isNoteTemplate(rawNote) ? '' : rawNote;
+
   const boardRef = doc(db, 'tableros', BOARD_ID);
   const logRef   = doc(collection(db, 'tableros', BOARD_ID, 'logs')); // ID auto
 
@@ -414,7 +439,8 @@ async function applyTransition(nextKey, actionLabel){
       }
     });
 
-    if (notaInput) notaInput.value = '';
+    // Dejo otra vez el molde listo para completar próximos sabores
+    if (notaInput) notaInput.value = NOTE_TEMPLATE;
 
     // Si llegamos a producción ok → resumen + mail
     if (nextKey === 'produccion_ok' && usedCycle != null) {
@@ -737,7 +763,6 @@ function renderCycleChart(summary){
     console.error('renderCycleChart error:', e, summary);
   }
 }
-
 
 // ---------- Captura de gráfico ----------
 async function captureChartPNG(canvas, dpr = 2){
