@@ -1010,4 +1010,3 @@ async function createBoard() {
   };
 })();
 
-window._cronox && window._cronox.forcePaint();
