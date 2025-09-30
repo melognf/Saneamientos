@@ -879,81 +879,103 @@ async function createBoard() {
 }
 
 
-/* ===== Cronómetros visuales (CIP / ARR) — sin interferir con tu UI ===== */
+/* ===== Cronómetros CIP / ARR — Solo visual, sin interferir ===== */
 (function () {
-  const fmt = (ms) => {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    const h = String(Math.floor(s / 3600)).padStart(2, '0');
-    const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-    const ss = String(s % 60).padStart(2, '0');
-    return `${h}:${m}:${ss}`;
-  };
-
-  function ensureDock() {
-    let dock = document.getElementById('cronodock');
-    if (!dock) {
-      dock = document.createElement('div');
-      dock.id = 'cronodock';
-      document.body.appendChild(dock);
-    }
-    return dock;
+  // 0) CSS embebido (por si te olvidás de la hoja): no tapa clics
+  if (!document.getElementById('cronodock-style')) {
+    const st = document.createElement('style');
+    st.id = 'cronodock-style';
+    st.textContent = `
+      #cronodock{position:fixed;bottom:12px;left:12px;display:flex;gap:8px;flex-wrap:wrap;z-index:2147483647;pointer-events:none}
+      .crono-badge{pointer-events:none;display:inline-flex;align-items:center;gap:.35rem;padding:.3rem .65rem;border-radius:.65rem;border:1px solid rgba(0,0,0,.18);background:rgba(255,255,255,.95);color:#0b1220;font:600 .92rem ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;line-height:1.15;letter-spacing:.02em;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+      .crono-badge.running{outline:2px solid #9cc4ff;box-shadow:0 6px 18px rgba(0,0,0,.18),0 0 0 2px rgba(156,196,255,.25) inset}
+      body.dark .crono-badge,:root[data-theme="dark"] .crono-badge{background:rgba(2,6,23,.88);border-color:rgba(148,163,184,.35);color:#e6f0ff}
+    `;
+    document.head.appendChild(st);
   }
 
-  function makeTimerDom(id, label) {
+  // 1) Utilidades
+  const fmt = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(s / 3600)).padStart(2,'0');
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2,'0');
+    const ss= String(s % 60).padStart(2,'0');
+    return `${h}:${m}:${ss}`;
+  };
+  const normText = (el) => (el?.innerText || el?.textContent || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/\s+/g,' ').trim();
+
+  function ensureDock() {
+    let d = document.getElementById('cronodock');
+    if (!d) { d = document.createElement('div'); d.id = 'cronodock'; document.body.appendChild(d); }
+    return d;
+  }
+  function makeBadge(id, label) {
     const el = document.createElement('span');
-    el.className = 'crono-badge';
-    el.dataset.role = id;
+    el.className = 'crono-badge'; el.dataset.role = id;
     el.innerHTML = `<strong>${label}:</strong> <span class="t">00:00:00</span>`;
     return el;
   }
 
-  function createTimer(id, label) {
-    let int = null, startMs = 0, el = null;
-    function start() {
+  // 2) Timers
+  function createTimer(id, label){
+    let int=null, start=0, node=null;
+    function startFn(){
       const dock = ensureDock();
-      // si ya existe, lo reciclo
-      el = dock.querySelector(`.crono-badge[data-role="${id}"]`) || makeTimerDom(id, label);
-      if (!el.isConnected) dock.appendChild(el);
-      startMs = Date.now();
-      el.classList.add('running');
-      el.querySelector('.t').textContent = '00:00:00';
+      node = dock.querySelector(`.crono-badge[data-role="${id}"]`) || makeBadge(id, label);
+      if (!node.isConnected) dock.appendChild(node);
+      node.classList.add('running');
+      node.querySelector('.t').textContent = '00:00:00';
+      start = Date.now();
       clearInterval(int);
-      int = setInterval(() => {
-        el.querySelector('.t').textContent = fmt(Date.now() - startMs);
-      }, 1000);
+      int = setInterval(()=> node.querySelector('.t').textContent = fmt(Date.now()-start), 1000);
     }
-    function stop() {
-      clearInterval(int); int = null;
-      if (el && el.parentNode) el.parentNode.removeChild(el); // “se va” visualmente
-      el = null;
+    function stopFn(){
+      clearInterval(int); int=null;
+      if (node?.parentNode) node.parentNode.removeChild(node); // se va visualmente
+      node=null;
     }
-    return { start, stop };
+    return { start: startFn, stop: stopFn };
   }
-
   const CIP = createTimer('cip', 'CIP');
   const ARR = createTimer('arr', 'ARR');
 
-  // API pública minimalista (no agrega listeners por defecto)
-  const Crono = {
-    startCIP: () => CIP.start(),
-    stopCIP:  () => CIP.stop(),
-    startARR: () => ARR.start(),
-    stopARR:  () => ARR.stop(),
+  // 3) Auto-bind por texto (no captura global; sólo agrega listeners a esos botones)
+  const bound = new WeakSet();
+  function looksLikeCipStart(btn){ const t=normText(btn); return t.includes('inicio') && t.includes('cip'); }
+  function looksLikeCipStop (btn){ const t=normText(btn); return (t.includes('fin')||t.includes('final')||t.includes('termin')) && t.includes('cip'); }
+  function looksLikeArrStart(btn){ const t=normText(btn); return (t.includes('iniciar')||t.includes('inicio')) && t.includes('arranque'); }
+  function looksLikeArrStop (btn){ const t=normText(btn); return (t.includes('arranque ok')) || (t.includes('ok') && (t.includes('producir')||t.includes('arranque'))); }
 
-    // Vinculación opcional por selectores (no bloquea: listeners simples)
-    bind(opts) {
-      const on = (sel, fn) => {
-        if (!sel) return;
-        const el = document.querySelector(sel);
-        el && el.addEventListener('click', () => { fn(); }, { passive: true });
-      };
-      on(opts?.cipStart, Crono.startCIP);
-      on(opts?.cipStop,  Crono.stopCIP);
-      on(opts?.arrStart, Crono.startARR);
-      on(opts?.arrStop,  Crono.stopARR);
+  function autobind() {
+    const candidates = Array.from(document.querySelectorAll('button, [role="button"]'));
+    for (const b of candidates) {
+      if (bound.has(b)) continue;
+      if (looksLikeCipStart(b)) { b.addEventListener('click', CIP.start, {passive:true}); bound.add(b); continue; }
+      if (looksLikeCipStop (b)) { b.addEventListener('click', CIP.stop,  {passive:true}); bound.add(b); continue; }
+      if (looksLikeArrStart(b)) { b.addEventListener('click', ARR.start, {passive:true}); bound.add(b); continue; }
+      if (looksLikeArrStop (b)) { b.addEventListener('click', ARR.stop,  {passive:true}); bound.add(b); continue; }
+    }
+  }
+
+  // 4) Observa cambios en el DOM para re-vincular si tu UI se re-renderiza
+  const mo = new MutationObserver(()=> autobind());
+  mo.observe(document.documentElement, { childList:true, subtree:true });
+
+  // 5) Primer bind inmediato
+  (document.readyState === 'loading')
+    ? document.addEventListener('DOMContentLoaded', autobind)
+    : autobind();
+
+  // 6) API por si la querés usar manualmente en tu código
+  window.Crono = {
+    startCIP: () => CIP.start(), stopCIP: () => CIP.stop(),
+    startARR: () => ARR.start(), stopARR: () => ARR.stop(),
+    // o bind directo por selectores si preferís (opcional)
+    bind({cipStart, cipStop, arrStart, arrStop} = {}){
+      const on=(sel,fn)=>{ const el=document.querySelector(sel); el&&el.addEventListener('click',fn,{passive:true}); };
+      on(cipStart,CIP.start); on(cipStop,CIP.stop); on(arrStart,ARR.start); on(arrStop,ARR.stop);
     }
   };
-
-  // Exponer en window
-  window.Crono = Crono;
 })();
