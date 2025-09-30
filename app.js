@@ -879,19 +879,19 @@ async function createBoard() {
 }
 
 
-// ==== Cronómetro visual por paso (no persiste, no afecta lógica) ====
+// ==== Cronómetro visual robusto (no persiste, no toca Firestore) ====
 
-// ⚙️ Config: dónde están los pasos (cada paso = .paso con botones data-act)
-const TIMER_CFG = { container: '#arranquePasos' };
+// Detecta "pasos" por la presencia de botones con data-act
+function findAllStepNodes(root = document) {
+  const startBtns = Array.from(root.querySelectorAll('button[data-act="start"]'));
+  const steps = new Set();
+  for (const btn of startBtns) {
+    const paso = btn.closest('.paso, [data-step], section, div, li');
+    if (paso) steps.add(paso);
+  }
+  return Array.from(steps);
+}
 
-// Estado interno del cronómetro (global/único)
-let _timer = {
-  intervalId: null,
-  startMs: 0,
-  pasoEl: null,   // elemento .paso actualmente cronometrado
-};
-
-// Utilidad: formatea ms → HH:MM:SS
 function fmtHMS(ms) {
   const sec = Math.max(0, Math.floor(ms / 1000));
   const h = String(Math.floor(sec / 3600)).padStart(2, '0');
@@ -900,16 +900,16 @@ function fmtHMS(ms) {
   return `${h}:${m}:${s}`;
 }
 
-// Asegura que cada .paso tenga un marcador de cronómetro
-function ensureTimerBadge(pasoEl) {
-  if (!pasoEl) return null;
+let _timer = { id: null, startMs: 0, pasoEl: null };
+
+function ensureBadge(pasoEl) {
   let badge = pasoEl.querySelector('.cronometro-badge');
   if (!badge) {
     badge = document.createElement('div');
     badge.className = 'cronometro-badge';
     badge.textContent = '00:00:00';
-    // Ubicación: al lado del <strong> del nombre del paso
-    const title = pasoEl.querySelector('strong') || pasoEl.firstElementChild;
+    // Colocar al lado del título si existe
+    const title = pasoEl.querySelector('strong, h3, h2, .titulo, .title');
     if (title) {
       title.insertAdjacentElement('afterend', badge);
     } else {
@@ -919,92 +919,92 @@ function ensureTimerBadge(pasoEl) {
   return badge;
 }
 
-// Resetea visualmente TODOS los badges a 00:00:00 (cuando cambia de paso)
-function resetAllBadges(containerEl) {
-  containerEl.querySelectorAll('.cronometro-badge').forEach(b => {
+function resetAllBadges(root = document) {
+  root.querySelectorAll('.cronometro-badge').forEach(b => {
     b.textContent = '00:00:00';
     b.classList.remove('running');
   });
 }
 
-// Arranca el cronómetro en el paso indicado
-function startVisualTimer(pasoEl, containerEl) {
-  // Reinicia cualquier cronómetro anterior
-  stopVisualTimer();
-
-  // Resetea todas las vistas a 00:00:00 (nuevo paso)
-  resetAllBadges(containerEl);
-
-  const badge = ensureTimerBadge(pasoEl);
-  _timer.startMs = Date.now();
-  _timer.pasoEl = pasoEl;
-
-  // Marca visual "running"
-  badge.classList.add('running');
-
-  _timer.intervalId = setInterval(() => {
-    const elapsed = Date.now() - _timer.startMs;
-    badge.textContent = fmtHMS(elapsed);
-  }, 1000);
-
-  // Pinta inmediatamente sin esperar 1s
-  badge.textContent = fmtHMS(0);
-}
-
-// Detiene (congela) el cronómetro actual
 function stopVisualTimer() {
-  if (_timer.intervalId) {
-    clearInterval(_timer.intervalId);
-    _timer.intervalId = null;
-  }
+  if (_timer.id) clearInterval(_timer.id);
+  _timer.id = null;
   if (_timer.pasoEl) {
-    const badge = _timer.pasoEl.querySelector('.cronometro-badge');
-    badge && badge.classList.remove('running');
+    const b = _timer.pasoEl.querySelector('.cronometro-badge');
+    if (b) b.classList.remove('running');
   }
   _timer.pasoEl = null;
   _timer.startMs = 0;
 }
 
-// Inicializa el módulo y se “engancha” a tus botones Start/Stop existentes
-function initCronometroVisual(cfg = TIMER_CFG) {
-  const containerEl = document.querySelector(cfg.container);
-  if (!containerEl) return;
+function startVisualTimer(pasoEl) {
+  stopVisualTimer();
+  resetAllBadges(document);
+  const b = ensureBadge(pasoEl);
+  _timer.pasoEl = pasoEl;
+  _timer.startMs = Date.now();
+  b.classList.add('running');
+  b.textContent = fmtHMS(0);
+  _timer.id = setInterval(() => {
+    b.textContent = fmtHMS(Date.now() - _timer.startMs);
+  }, 1000);
+}
 
-  // Crea badges para los pasos existentes
-  containerEl.querySelectorAll('.paso').forEach(ensureTimerBadge);
-
-  // Delegación de eventos: escucha tus botones ya existentes
-  containerEl.addEventListener('click', (ev) => {
+// Delegación global: escucha todos los clicks en la página
+function wireGlobalDelegation() {
+  document.addEventListener('click', (ev) => {
     const btn = ev.target.closest('button[data-act]');
     if (!btn) return;
-    const act = btn.dataset.act; // 'start' o 'stop' (según tu UI)
-    const pasoEl = btn.closest('.paso');
+    const act = btn.dataset.act; // 'start' o 'stop'
+    const pasoEl = btn.closest('.paso, [data-step], section, div, li');
     if (!pasoEl) return;
 
+    // Asegurar que el paso tenga badge
+    ensureBadge(pasoEl);
+
     if (act === 'start') {
-      startVisualTimer(pasoEl, containerEl);
+      startVisualTimer(pasoEl);
     } else if (act === 'stop') {
-      // Solo si el stop es del paso que está corriendo
       if (_timer.pasoEl && pasoEl === _timer.pasoEl) {
         stopVisualTimer();
       }
-      // Si apretan stop de otro paso, no hacemos nada para no confundir la vista
     }
-  });
-
-  // Observa re-render de la lista (si tu app reescribe #arranquePasos)
-  const mo = new MutationObserver(() => {
-    // Si se re-renderiza, reponemos badges
-    containerEl.querySelectorAll('.paso').forEach(ensureTimerBadge);
-    // Si el nodo del paso activo desapareció, detenemos el cronómetro
-    if (_timer.pasoEl && !containerEl.contains(_timer.pasoEl)) {
-      stopVisualTimer();
-    }
-  });
-  mo.observe(containerEl, { childList: true, subtree: true });
+  }, true); // useCapture para no perder eventos aunque haya handlers arriba
 }
 
-// Auto-init al cargar
-document.addEventListener('DOMContentLoaded', () => {
-  initCronometroVisual();
-});
+// Observa re-render global y reinyecta badges si hace falta
+function observeRenders() {
+  const mo = new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.addedNodes && m.addedNodes.length) {
+        // Cada vez que se agregan nodos, aseguramos badges en los pasos visibles
+        for (const paso of findAllStepNodes(document)) ensureBadge(paso);
+      }
+    }
+    // Si el paso activo desapareció, detenemos
+    if (_timer.pasoEl && !document.contains(_timer.pasoEl)) stopVisualTimer();
+  });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+function bootCronometro() {
+  // 1) poner badges a todo lo existente
+  for (const paso of findAllStepNodes(document)) ensureBadge(paso);
+  // 2) enganchar escuchas globales
+  wireGlobalDelegation();
+  observeRenders();
+}
+
+// Inicializa aunque DOMContentLoaded ya haya pasado
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootCronometro);
+} else {
+  bootCronometro();
+}
+
+// (Opcional) helper para depurar desde consola
+window._cronotest = {
+  restart() { bootCronometro(); },
+  stop() { stopVisualTimer(); },
+  list() { return findAllStepNodes(); }
+};
