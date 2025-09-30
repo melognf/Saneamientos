@@ -879,3 +879,81 @@ async function createBoard() {
 }
 
 
+/* ===== Cronómetros visuales (CIP / ARR) — sin interferir con tu UI ===== */
+(function () {
+  const fmt = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = String(Math.floor(s / 3600)).padStart(2, '0');
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const ss = String(s % 60).padStart(2, '0');
+    return `${h}:${m}:${ss}`;
+  };
+
+  function ensureDock() {
+    let dock = document.getElementById('cronodock');
+    if (!dock) {
+      dock = document.createElement('div');
+      dock.id = 'cronodock';
+      document.body.appendChild(dock);
+    }
+    return dock;
+  }
+
+  function makeTimerDom(id, label) {
+    const el = document.createElement('span');
+    el.className = 'crono-badge';
+    el.dataset.role = id;
+    el.innerHTML = `<strong>${label}:</strong> <span class="t">00:00:00</span>`;
+    return el;
+  }
+
+  function createTimer(id, label) {
+    let int = null, startMs = 0, el = null;
+    function start() {
+      const dock = ensureDock();
+      // si ya existe, lo reciclo
+      el = dock.querySelector(`.crono-badge[data-role="${id}"]`) || makeTimerDom(id, label);
+      if (!el.isConnected) dock.appendChild(el);
+      startMs = Date.now();
+      el.classList.add('running');
+      el.querySelector('.t').textContent = '00:00:00';
+      clearInterval(int);
+      int = setInterval(() => {
+        el.querySelector('.t').textContent = fmt(Date.now() - startMs);
+      }, 1000);
+    }
+    function stop() {
+      clearInterval(int); int = null;
+      if (el && el.parentNode) el.parentNode.removeChild(el); // “se va” visualmente
+      el = null;
+    }
+    return { start, stop };
+  }
+
+  const CIP = createTimer('cip', 'CIP');
+  const ARR = createTimer('arr', 'ARR');
+
+  // API pública minimalista (no agrega listeners por defecto)
+  const Crono = {
+    startCIP: () => CIP.start(),
+    stopCIP:  () => CIP.stop(),
+    startARR: () => ARR.start(),
+    stopARR:  () => ARR.stop(),
+
+    // Vinculación opcional por selectores (no bloquea: listeners simples)
+    bind(opts) {
+      const on = (sel, fn) => {
+        if (!sel) return;
+        const el = document.querySelector(sel);
+        el && el.addEventListener('click', () => { fn(); }, { passive: true });
+      };
+      on(opts?.cipStart, Crono.startCIP);
+      on(opts?.cipStop,  Crono.stopCIP);
+      on(opts?.arrStart, Crono.startARR);
+      on(opts?.arrStop,  Crono.stopARR);
+    }
+  };
+
+  // Exponer en window
+  window.Crono = Crono;
+})();
