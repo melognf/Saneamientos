@@ -1010,4 +1010,48 @@ async function createBoard() {
   };
 })();
 
-window._cronox && window._cronox.forcePaint();
+/* ==== Parche: detección difusa de botones + fix de forcePaint ==== */
+(function(){
+  // Normaliza texto: sin acentos, minúsculas, espacios colapsados
+  const norm = el => (el?.innerText || el?.textContent || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/\s+/g,' ').trim();
+
+  function isCipStart(btn){
+    if (btn.matches('button[data-act="start"][data-step="cip"]')) return true;
+    const t = norm(btn);
+    return t.includes('inicio') && t.includes('cip');
+  }
+  function isCipStop(btn){
+    if (btn.matches('button[data-act="stop"][data-step="cip"]')) return true;
+    const t = norm(btn);
+    return (t.includes('fin') || t.includes('final') || t.includes('termin')) && t.includes('cip');
+  }
+  function isArrStart(btn){
+    if (btn.matches('button[data-act="start"][data-step="arranque"]')) return true;
+    const t = norm(btn);
+    return (t.includes('iniciar') || t.includes('inicio')) && t.includes('arranque');
+  }
+  function isArrStop(btn){
+    if (btn.matches('button[data-act="stop"][data-step="arranque"]')) return true;
+    const t = norm(btn);
+    return ( (t.includes('ok') && (t.includes('producir') || t.includes('arranque'))) || t.includes('arranque ok') );
+  }
+
+  // Listener adicional en captura (no interfiere con tu lógica)
+  function handler(ev){
+    const btn = ev.target.closest('button,[role="button"]'); if(!btn) return;
+    if (!window._cronox) return; // por si aún no cargó el módulo
+    if (isCipStart(btn))      window._cronox.CIP.start();
+    else if (isCipStop(btn))  window._cronox.CIP.stop();
+    else if (isArrStart(btn)) window._cronox.ARR.start();
+    else if (isArrStop(btn))  window._cronox.ARR.stop();
+  }
+  document.addEventListener('click', handler, true);
+  document.addEventListener('pointerup', handler, true); // por si tu UI usa pointer en vez de click
+
+  // Asegurá el dock fijo después de que todo renderiza
+  window.addEventListener('load', () => {
+    setTimeout(() => { window._cronox && window._cronox.forcePaint(); }, 0);
+  });
+})();

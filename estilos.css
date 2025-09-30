@@ -120,22 +120,22 @@ header{display:flex;gap:12px;align-items:center;justify-content:space-between;ma
 .log-item time { color: var(--muted) !important; }
 
 
-/* Dock fijo para los cronos (abajo-izquierda, por encima de todo) */
+/* Dock siempre visible (abajo-izquierda) */
 #cronox-fixedbar{
   position: fixed !important;
   bottom: 12px; left: 12px;
-  right: auto; top: auto;
   display: flex; gap: 8px;
-  z-index: 2147483647; /* siempre arriba */
+  z-index: 2147483647;
 }
 
-/* Badge legible en cualquier fondo */
+/* Badge con alto contraste, sin heredar opacidades raras */
 .crono-badge{
   display:inline-flex; align-items:center; gap:.35rem;
   padding:.28rem .6rem; border-radius:.65rem;
   border:1px solid rgba(0,0,0,.18);
-  background: rgba(255,255,255,.92);
-  color:#0b1220; font: 600 .92rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  background: rgba(255,255,255,.95);
+  color:#0b1220 !important;
+  font: 600 .92rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   line-height:1.15; letter-spacing:.02em;
   box-shadow: 0 6px 18px rgba(0,0,0,.18);
 }
@@ -144,10 +144,10 @@ header{display:flex;gap:12px;align-items:center;justify-content:space-between;ma
   box-shadow: 0 6px 18px rgba(0,0,0,.18), 0 0 0 2px rgba(156,196,255,.25) inset;
 }
 
-/* Modo oscuro (si tu app usa body.dark o data-theme=dark) */
+/* Modo oscuro */
 body.dark .crono-badge,
 :root[data-theme="dark"] .crono-badge{
-  background: rgba(2,6,23,.78);
+  background: rgba(2,6,23,.88);
   border-color: rgba(148,163,184,.35);
-  color:#e6f0ff;
+  color:#e6f0ff !important;
 }
