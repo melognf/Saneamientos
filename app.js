@@ -1009,3 +1009,5 @@ async function createBoard() {
     forcePaint(){ ensureMount(MOUNT.cip, 'CIP'); ensureMount(MOUNT.arranque,'ARR'); }
   };
 })();
+
+window._cronox && window._cronox.forcePaint();
