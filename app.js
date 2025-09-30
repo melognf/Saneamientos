@@ -879,132 +879,133 @@ async function createBoard() {
 }
 
 
-// ==== Cronómetro visual robusto (no persiste, no toca Firestore) ====
+/* ==== DOS CRONÓMETROS VISUALES: CIP y ARRANQUE (UI only) ==== */
+(function(){
+  // ⛭ Config: dónde montar los cronómetros (ajustá si tus IDs son otros)
+  const MOUNT = {
+    cip:       '#cipCard h2',        // ej: tarjeta CIP
+    arranque:  '#arranqueCard h2'    // ej: tarjeta Arranque
+  };
 
-// Detecta "pasos" por la presencia de botones con data-act
-function findAllStepNodes(root = document) {
-  const startBtns = Array.from(root.querySelectorAll('button[data-act="start"]'));
-  const steps = new Set();
-  for (const btn of startBtns) {
-    const paso = btn.closest('.paso, [data-step], section, div, li');
-    if (paso) steps.add(paso);
+  // Palabras clave de botones (se puede ampliar sin tocar lógica)
+  const TEXT = {
+    cipStart:   [/^inicio\s+de\s+cip$/i],
+    cipStop:    [/^fin\s+de\s+cip$/i],
+    arrStart:   [/^iniciar\s+arranque$/i, /^inicio\s+arranque$/i],
+    arrStop:    [/^arranque\s+ok$/i, /^ok\s+para\s+producir$/i]
+  };
+
+  // Si ya usás data-act / data-step podés sumar acá (no es obligatorio)
+  const SELECTORS = {
+    cipStart:  ['button[data-act="start"][data-step="cip"]'],
+    cipStop:   ['button[data-act="stop"][data-step="cip"]'],
+    arrStart:  ['button[data-act="start"][data-step="arranque"]'],
+    arrStop:   ['button[data-act="stop"][data-step="arranque"]']
+  };
+
+  // ========= Infra común =========
+  const fmt = ms => {
+    const s = Math.max(0, Math.floor(ms/1000));
+    const h = String(Math.floor(s/3600)).padStart(2,'0');
+    const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+    const ss= String(s%60).padStart(2,'0');
+    return `${h}:${m}:${ss}`;
+  };
+  const norm = el => (el?.innerText || el?.textContent || '').trim();
+
+  function qAll(arrSel){
+    const out = [];
+    (arrSel||[]).forEach(sel=>{
+      try { document.querySelectorAll(sel).forEach(el=>out.push(el)); } catch(_){}
+    });
+    return out;
   }
-  return Array.from(steps);
-}
+  function matchText(btn, patterns){
+    const t = norm(btn);
+    return patterns?.some(rx => rx.test(t)) || false;
+  }
 
-function fmtHMS(ms) {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  const h = String(Math.floor(sec / 3600)).padStart(2, '0');
-  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-  const s = String(sec % 60).padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
-
-let _timer = { id: null, startMs: 0, pasoEl: null };
-
-function ensureBadge(pasoEl) {
-  let badge = pasoEl.querySelector('.cronometro-badge');
-  if (!badge) {
-    badge = document.createElement('div');
-    badge.className = 'cronometro-badge';
-    badge.textContent = '00:00:00';
-    // Colocar al lado del título si existe
-    const title = pasoEl.querySelector('strong, h3, h2, .titulo, .title');
-    if (title) {
-      title.insertAdjacentElement('afterend', badge);
-    } else {
-      pasoEl.prepend(badge);
+  function ensureMount(where, label){
+    let host = document.querySelector(where);
+    if (!host) {
+      // Fallback fijo arriba a la derecha si no existe el contenedor
+      let bar = document.querySelector('#cronox-fixedbar');
+      if (!bar){
+        bar = document.createElement('div');
+        bar.id = 'cronox-fixedbar';
+        bar.style = 'position:fixed; top:8px; right:8px; display:flex; gap:8px; z-index:9999;';
+        document.body.appendChild(bar);
+      }
+      host = bar;
     }
+    // crea badge si falta
+    let badge = host.parentElement?.querySelector?.(`.crono-badge[data-role="${label}"]`);
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'crono-badge';
+      badge.dataset.role = label;
+      badge.innerHTML = `<strong>${label.toUpperCase()}:</strong> <span class="t">00:00:00</span>`;
+      // si host es un título, lo ponemos al lado
+      if (host.insertAdjacentElement) host.insertAdjacentElement('afterend', badge);
+      else host.appendChild(badge);
+    }
+    return badge;
   }
-  return badge;
-}
 
-function resetAllBadges(root = document) {
-  root.querySelectorAll('.cronometro-badge').forEach(b => {
-    b.textContent = '00:00:00';
-    b.classList.remove('running');
-  });
-}
+  function makeTimer(label, mountSel){
+    let id=null, startMs=0, badge=null;
 
-function stopVisualTimer() {
-  if (_timer.id) clearInterval(_timer.id);
-  _timer.id = null;
-  if (_timer.pasoEl) {
-    const b = _timer.pasoEl.querySelector('.cronometro-badge');
-    if (b) b.classList.remove('running');
+    function paint(ms){ badge?.querySelector('.t')?.replaceChildren(document.createTextNode(fmt(ms))); }
+    function start(){
+      badge = ensureMount(mountSel, label);
+      stop(); // por las dudas
+      startMs = Date.now();
+      badge.classList.add('running');
+      paint(0);
+      id = setInterval(()=> paint(Date.now()-startMs), 1000);
+    }
+    function stop(){
+      if (id){ clearInterval(id); id=null; }
+      if (badge){ badge.classList.remove('running'); }
+    }
+    return { start, stop };
   }
-  _timer.pasoEl = null;
-  _timer.startMs = 0;
-}
 
-function startVisualTimer(pasoEl) {
-  stopVisualTimer();
-  resetAllBadges(document);
-  const b = ensureBadge(pasoEl);
-  _timer.pasoEl = pasoEl;
-  _timer.startMs = Date.now();
-  b.classList.add('running');
-  b.textContent = fmtHMS(0);
-  _timer.id = setInterval(() => {
-    b.textContent = fmtHMS(Date.now() - _timer.startMs);
-  }, 1000);
-}
+  const CIP = makeTimer('CIP', MOUNT.cip);
+  const ARR = makeTimer('ARR', MOUNT.arranque);
 
-// Delegación global: escucha todos los clicks en la página
-function wireGlobalDelegation() {
-  document.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('button[data-act]');
+  // ========= Enrutamiento de eventos =========
+  function isCipStart(btn){ return matchText(btn, TEXT.cipStart) || qAll(SELECTORS.cipStart).includes(btn); }
+  function isCipStop(btn){  return matchText(btn, TEXT.cipStop)  || qAll(SELECTORS.cipStop).includes(btn); }
+  function isArrStart(btn){ return matchText(btn, TEXT.arrStart) || qAll(SELECTORS.arrStart).includes(btn); }
+  function isArrStop(btn){  return matchText(btn, TEXT.arrStop)  || qAll(SELECTORS.arrStop).includes(btn); }
+
+  // Captura global de clicks (no interfiere con tus handlers)
+  document.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('button,[role="button"]');
     if (!btn) return;
-    const act = btn.dataset.act; // 'start' o 'stop'
-    const pasoEl = btn.closest('.paso, [data-step], section, div, li');
-    if (!pasoEl) return;
 
-    // Asegurar que el paso tenga badge
-    ensureBadge(pasoEl);
+    if (isCipStart(btn))      { CIP.start(); }
+    else if (isCipStop(btn))  { CIP.stop();  }
+    else if (isArrStart(btn)) { ARR.start(); }
+    else if (isArrStop(btn))  { ARR.stop();  }
+  }, true);
 
-    if (act === 'start') {
-      startVisualTimer(pasoEl);
-    } else if (act === 'stop') {
-      if (_timer.pasoEl && pasoEl === _timer.pasoEl) {
-        stopVisualTimer();
-      }
-    }
-  }, true); // useCapture para no perder eventos aunque haya handlers arriba
-}
+  // También por teclado (opcional): si un botón se activa por Enter/Espacio
+  document.addEventListener('keydown', (ev)=>{
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const el = document.activeElement;
+    if (!el) return;
+    if (isCipStart(el))      { CIP.start(); }
+    else if (isCipStop(el))  { CIP.stop();  }
+    else if (isArrStart(el)) { ARR.start(); }
+    else if (isArrStop(el))  { ARR.stop();  }
+  }, true);
 
-// Observa re-render global y reinyecta badges si hace falta
-function observeRenders() {
-  const mo = new MutationObserver((muts) => {
-    for (const m of muts) {
-      if (m.addedNodes && m.addedNodes.length) {
-        // Cada vez que se agregan nodos, aseguramos badges en los pasos visibles
-        for (const paso of findAllStepNodes(document)) ensureBadge(paso);
-      }
-    }
-    // Si el paso activo desapareció, detenemos
-    if (_timer.pasoEl && !document.contains(_timer.pasoEl)) stopVisualTimer();
-  });
-  mo.observe(document.documentElement, { childList: true, subtree: true });
-}
-
-function bootCronometro() {
-  // 1) poner badges a todo lo existente
-  for (const paso of findAllStepNodes(document)) ensureBadge(paso);
-  // 2) enganchar escuchas globales
-  wireGlobalDelegation();
-  observeRenders();
-}
-
-// Inicializa aunque DOMContentLoaded ya haya pasado
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', bootCronometro);
-} else {
-  bootCronometro();
-}
-
-// (Opcional) helper para depurar desde consola
-window._cronotest = {
-  restart() { bootCronometro(); },
-  stop() { stopVisualTimer(); },
-  list() { return findAllStepNodes(); }
-};
+  // Exponer helpers de depuración
+  window._cronox = {
+    CIP, ARR,
+    test(){ console.log('CIP/ARR mounts:', {cip:MOUNT.cip, arr:MOUNT.arranque}); },
+    forcePaint(){ ensureMount(MOUNT.cip, 'CIP'); ensureMount(MOUNT.arranque,'ARR'); }
+  };
+})();

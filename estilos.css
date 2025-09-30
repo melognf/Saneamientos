@@ -120,19 +120,13 @@ header{display:flex;gap:12px;align-items:center;justify-content:space-between;ma
 .log-item time { color: var(--muted) !important; }
 
 
-.cronometro-badge{
-  display:inline-block;
-  margin-left:.5rem;
-  padding:.15rem .5rem;
+.crono-badge{
+  display:inline-flex; align-items:center; gap:.35rem;
+  margin-left:.5rem; padding:.2rem .55rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size:.9rem;
-  border:1px solid #e5e7eb;
-  border-radius:.5rem;
-  background:#f8fafc;
-  line-height:1.2;
-  vertical-align:middle;
+  font-size:.9rem; line-height:1.2;
+  border:1px solid #e5e7eb; border-radius:.6rem; background:#f8fafc;
 }
-.cronometro-badge.running{
-  outline: 2px solid #9cc4ff;
-  box-shadow: 0 0 0 2px rgba(156,196,255,.25) inset;
+.crono-badge.running{
+  outline:2px solid #9cc4ff; box-shadow:0 0 0 2px rgba(156,196,255,.25) inset;
 }
